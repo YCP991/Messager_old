@@ -1,6 +1,7 @@
 package com.maisizhe.websocket.handler;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.maisizhe.modules.ai.service.AiWorkflowService;
 import com.maisizhe.security.jwt.JwtUtil;
 import com.maisizhe.websocket.message.WSMessage;
 import com.maisizhe.websocket.session.UserSessionManager;
@@ -12,6 +13,7 @@ import javax.websocket.*;
 import javax.websocket.server.PathParam;
 import javax.websocket.server.ServerEndpoint;
 import java.io.IOException;
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -28,6 +30,7 @@ public class WebSocketHandler {
     
     private final UserSessionManager sessionManager;
     private final JwtUtil jwtUtil;
+    private final AiWorkflowService aiWorkflowService;
     private final ObjectMapper objectMapper = new ObjectMapper();
     
     /**
@@ -152,11 +155,38 @@ public class WebSocketHandler {
                 log.info("收到私聊消息: fromUserId={}", userId);
                 break;
             case "GROUP_MESSAGE":
-                // 群聊消息(后续实现)
-                log.info("收到群聊消息: fromUserId={}", userId);
+                // 群聊消息
+                handleGroupMessage(userId, message);
                 break;
             default:
                 log.warn("未知消息类型: {}", message.getType());
+        }
+    }
+    
+    /**
+     * 处理群聊消息
+     * 
+     * @param userId 用户ID
+     * @param message 消息对象
+     */
+    @SuppressWarnings("unchecked")
+    private void handleGroupMessage(Long userId, WSMessage message) {
+        try {
+            Map<String, Object> data = (Map<String, Object>) message.getData();
+            Long groupId = ((Number) data.get("groupId")).longValue();
+            String content = (String) data.get("content");
+            String clientMsgId = message.getClientMsgId();
+            
+            // 检测是否@AI
+            if (content != null && content.contains("@AI")) {
+                log.info("检测到@AI消息: userId={}, groupId={}", userId, groupId);
+                aiWorkflowService.handleAtAiMessage(groupId, userId, content, clientMsgId);
+            } else {
+                log.info("普通群聊消息: userId={}, groupId={}", userId, groupId);
+                // TODO: 调用消息服务保存和推送
+            }
+        } catch (Exception e) {
+            log.error("处理群聊消息失败", e);
         }
     }
     
