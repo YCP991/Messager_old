@@ -1,0 +1,669 @@
+这份由 ChatGPT 生成的项目总结和架构设计，可以说是标准的“大厂面试高分模版”。它的核心优势在于极强的“包装感”——把一个普通的校园聊天软件，用高并发、AI Agent、DDD-lite 架构和数据库分层等概念包装成了一个高大上的工程项目。如果拿着这套文档去应聘常规的 Java 后端开发，确实能唬住不少面试官。但如果作为技术负责人或者从真正落地、防卷防杠的硬核后端视角来看，这份设计有惊艳的亮点，但也埋下了不少只有真正写过高并发、长连接系统的程序员才能看出来的“连环坑”。下面是我对这套方案的深度拆解：核心亮点：ChatGPT 真正出彩的设计在这堆“黑话”里，有两点设计确实非常优雅，是具备实战工程思维的：1. AI 极其优雅的“降维打击”建模（Agent-as-User）把 AI Agent 直接抽象成 user_id = 0 的特殊群成员，这是全篇最有含金量的架构逻辑。为什么好： 它完美符合了面向对象设计的“开闭原则”。数据库、群管理、消息流转、甚至未来的权限控制，都不需要为 AI 单独写一套特殊的业务代码。AI 只是一个“打字特别快、懂得多、反应慢一点”的特殊用户而已。2. 贴合真实校园的业务建模很多学生项目把群聊直接做成统一的 group 表。方案中把群聊拆分为普通群、班级群、课程群，并且建立了“课程 $\rightarrow$ 多个班级 $\rightarrow$ 自动拉人”的逻辑，这极大地体现了业务思考。面试官最讨厌空洞的“聊天 demo”，这种贴合真实场景的建模能直接拉开与普通课设的差距。隐藏的“连环坑”：重度理想化的工程现实既然是 10 天、3 个人的开发计划，这份设计明显有些“飘了”。如果真正进入编码阶段，以下几个地方会瞬间变成开发灾难：坑 1：致命的消息分表逻辑（按月分表）方案中提出利用 MyBatis-Plus 动态表名实现 message_202606、message_202607 按月分表。现实痛点： IM 系统几乎从来不按时间分表，而是按会话（chat_id / group_id）或用户进行哈希/范围分表。为什么： 想象一下，用户在群里聊天，向上滚动屏幕查看历史记录（拉取前 50 条消息）。如果恰好跨越了月底（比如 6 月 1 日凌晨看 5 月 31 日的消息），你的后端必须写极其复杂的跨表联合查询，或者先查一张表，不够再查另一张表。随着时间推移，老的数据表空置，新的数据表暴涨，查询性能会因为跨表极其拉胯。坑 2：高估了 Spring Boot 自带 STOMP 的上限方案选用 Vue 端的 Stomp.js 和 Spring Boot 的 WebSocket STOMP 协议。现实痛点： Spring 的内置 STOMP 代理（Simple Broker）是一个完全基于内存的本地消息广播机制。一旦你部署两个节点做负载均衡，A 节点上的用户根本收不到连接在 B 节点上的用户发的消息，直接导致消息丢失。如果引入 Redis Pub/Sub 来做集群广播，Redis 的发布订阅是没有 ACK 机制的，网络稍微一抖，消息直接蒸发。破局点： 对于真正追求底层性能和网络掌控力的后端来说，用 Netty 自定义协议，或者直接用原生的 WebSocket 配合高可用消息队列（如 Kafka/RocketMQ）来做消息路由总线，才算得上是硬核的 IM 架构。坑 3：AI Agent 的高延迟与并发雪崩方案提到群内 @AI 后通过异步任务调用大模型流式或非流式输出。现实痛点： LLM 的响应通常在 3 到 10 秒。如果是高并发的群聊，很多人同时 @AI，后台的 Spring 线程池很快就会被这些阻塞的 HTTP 请求榨干。缺失设计： 这里必须引入削峰队列。前端发送 @AI 消息后，后端应立即返回一个“AI 正在思考中...”的占位消息 ID，并将请求丢入队列，由专门的 AI 消费线程异步拉取、调用、并逐步通过 WebSocket 吐回客户端。如果我是面试官，我会怎么问？如果你们拿着这套架构去面试，面试官为了测试你们是“真做过”还是“背八股”，大概率会祭出以下连环炮：“既然客户端通过本地记录最后消息 ID 来重连拉取增量，那如果用户换了一台新设备（比如手机换到电脑），本地没有消息 ID，你怎么实现历史消息的多端同步和完美漫游？”“雪花算法生成的 MessageID 是时间递增的，但在高并发下，如果两个节点有时钟回拨，你怎么保证消息在分布式环境下的绝对顺序性？”“当一个 500 人的大群发送一条消息时，你是选择写扩散（给 500 个人各自的收件箱存一条索引）还是读扩散（只存一条消息本体，500 人同时读这一条）？各自的优缺点和你的选择是什么？”整体总结与进化建议ChatGPT 给出的这套方案，骨架非常漂亮（分层合理、模块清晰），是一张极佳的 100 分设计蓝图。但在 10 天的现实开发中，建议你们砍掉按月分表，改为单表加索引（1000 人的校园规模，单表千万级前完全不需要分表），同时把精力和亮点聚焦在“消息的绝对可靠性传输”（ACK 机制、重连补盲、去重排序）上。既然这个项目融入了 AI 属性，如果能把 AI 接入的并发管理和工程解耦做好，这就是一个能在本科生求职中拿到 Top 级别的后端项目。
+
+做技术预研和选型时，最核心的原则是：“在团队能力的上限内，选择最能讲出故事、且最不容易在生产中崩溃的方案。” 既然目标是做一个既能落地（3个人、时间紧），又能作为求职亮点的项目，我们就必须把 ChatGPT 那套“看似高大上、实则落地即炸”的学院派方案，重构为“既有底层思考，又能快速交付”的硬核演进方案。
+
+以下是我为你梳理的技术选型、预研分析以及落地系统设计方案。
+
+一、 技术选型与预研对比
+为了让这个项目在面试时具备极高的“反卷”能力，我们需要对关键组件进行重新选型，规避之前的致命陷阱。
+
+核心维度	ChatGPT 的理想化选型	麦思哲（实战演进版）选型	选型预研理由（面试防御话术）
+长连接网关	Spring WebSocket + STOMP	Spring WebSocket + Redis Stream 消息总线	STOMP 的内存 Broker 无法做到集群扩展。引入 Redis Stream 作为轻量级消息队列，既能实现多节点间的消息广播（解决 A 节点发、B 节点收不到的问题），又自带 ACK 机制和消费组能力，比纯 Redis Pub/Sub 可靠得多。
+消息存储	MyBatis-Plus 动态按月分表	MySQL 单表 + 会话联合索引 + Redis ZSet 漫游缓存	IM 系统按月分表是灾难（跨月查询性能极差）。在校园规模下，单表完全能抗住。应该采用读写扩散平衡设计，按 chat_id（会话 ID）+ msg_id 建立联合索引，查询历史记录就是极其高效的顺序扫描。
+消息唯一性	纯雪花算法 (Snowflake ID)	Snowflake ID + Redis Session INCR (双轴驱动)	纯雪花算法无法绝对保证一个群内消息的连续递增（时钟回拨或多节点并发时，ID 顺序可能与实际到达时间有微弱偏差）。引入 Redis INCR 为每个会话生成连续递增的 Sequence ID，客户端凭此判断是否丢包，雪花 ID 则作为全局唯一检索主键。
+AI 接入层	业务线程同步/简单异步调用	Spring TaskExecutor 异步线程池 + 环形事件队列	大模型响应（3~10秒）极慢。必须将客户端的 @AI 请求转化为一个“AI任务事件”丢入队列，由专门的 AI Worker 线程池异步消费，避免阻塞网关的 I/O 线程，防止群聊高并发时系统雪崩。
+二、 核心系统架构设计
+系统放弃复杂的微服务，采用模块化单体（Modular Monolith）架构。将长连接网关、业务逻辑和 AI 异步工作流在代码层面解耦，保证后续可以平滑升级为微服务。
+
+2.1 整体架构拓扑
+                       ┌─────────────────┐
+                       │  Vue3 客户端     │
+                       └────────┬────────┘
+                                │ HTTPS / WSS (Websocket)
+                       ┌────────▼────────┐
+                       │   Nginx 网关     │
+                       └────────┬────────┘
+                                │ 负载均衡
+        ┌───────────────────────┴───────────────────────┐
+        ▼                                               ▼
+┌──────────────────────────────┐                ┌──────────────────────────────┐
+│    MaiSiZhe 节点 A            │                │    MaiSiZhe 节点 B            │
+│  ├─ WebSocket Handler (I/O)  │                │  ├─ WebSocket Handler (I/O)  │
+│  ├─ Core Service (CRUD)      │                │  ├─ Core Service (CRUD)      │
+│  └─ AI Worker Pool (Task)    │                │  └─ AI Worker Pool (Task)    │
+└──────────────┬───────────────┘                └──────────────┬───────────────┘
+               │                                               │
+               └───────────────────────┬───────────────────────┘
+                                       ▼
+                     ┌───────────────────────────────────┐
+                     │ 基础设施层                       │
+                     │ ├─ Redis Stream (分布式消息路由)   │
+                     │ ├─ Redis ZSet (热点消息漫游缓存)  │
+                     │ ├─ MySQL (持久化 & 会话联合索引)   │
+                     │ └─ 大模型 API (DeepSeek / Qwen)   │
+                     └───────────────────────────────────┘
+三、 关键硬核模块深化设计
+3.1 核心 IM 链路：如何保证消息“不丢、不乱、不重”
+这是后端面试最经典的高频战场，系统设计必须做到滴水不漏。
+
+1. 消息发送与投递流程（以群聊为例）
+客户端 A 发送消息，携带一个本地生成的 client_msg_id（用于去重和前端展示占位）。
+
+网关接收：后端收到消息，先去 Redis 判定 client_msg_id 是否已存在（防止重试导致的重复发送）。
+
+双轴定序：调用 Redis INCR seq:group:{gid} 获取该群的绝对递增序号（Sequence ID），同时生成全局唯一雪花 ID。
+
+异步持久化与广播：
+
+消息异步写入 MySQL。
+
+消息同步写入 Redis ZSet（缓存最近 100 条消息）。
+
+将消息投递到 Redis Stream (Stream_Group_Mailbox)。
+
+多节点路由：所有服务节点都在消费这个 Redis Stream。发现属于自己节点上在线用户的群消息，立即通过 WebSocket 推送给用户。
+
+亮点话术： “我们没有使用传统的内存广播，而是基于 Redis Stream 实现了分布式的消息路由总线。这样长连接网关可以无状态地任意水平扩展，且保证了并发环境下群聊消息的绝对递增顺序。”
+
+2. 断线重连与“消息漫游”补盲
+当校园网络切换（如从食堂走到教学楼断网重连），客户端会触发重连逻辑：
+
+前端本地记录了当前收到的最大 Sequence ID（例如 seq = 105）。
+
+重连成功后，前端向后端发送 HTTP 请求：/message/sync?groupId=xxx&lastSeq=105。
+
+后端优先读取 Redis ZSet，如果 ZSet 里的最大 Seq 大于 105，直接把增量消息一次性打包返回（网速极快）；如果缓存失效，则走 MySQL 索引兜底。
+
+前端收到补盲消息后进行客户端排序，实现无缝平滑刷新。
+
+3.2 智能 Agent 异步削峰工作流
+如果把大模型调用直接写在长连接的事件响应里，群里多点几次 @AI，系统立刻就会卡死。系统采用基于生产者-消费者模型的 Agent 工作流：
+
+客户端发送 `@AI 帮我总结` 
+     │
+     ▼
+WebSocket 接收 ──► 立即向群内广播一条“占位消息”（AI 正在思考中...）
+     │
+     ▼
+将 AI 请求封装为 Task ──► 丢入后端独立的环形阻塞队列 (BlockingQueue)
+                                 │
+                                 ▼ (专门的 AIWorker 线程池异步消费)
+                   调用大模型 API (支持流式 SSE 或 文本 Block 返回)
+                                 │
+                                 ▼
+                   大模型生成完毕 / 阶段性流式输出
+                                 │
+                                 ▼
+                   通过 WebSocket 异步推回群聊，更新该消息 ID 的内容
+Agent-as-User 落地支持： AI 的数据库实体就是 user_id = 0。当 AI Worker 线程拿到大模型回复后，会调用统一的 MessageService.send(fromUserId=0, toGroupId=xxx)。这样，AI 的回复完美走通了 3.1 节设计的所有消息存储、排序和多节点广播逻辑。
+
+3.3 数据库设计（核心精简版）
+摒弃复杂的动态分表，采用紧凑的高性能索引设计。
+
+消息历史表 (im_message)
+核心设计思路：利用聚簇索引和联合索引，让单个群或单个私聊的聊天记录在物理存储上尽可能紧凑，实现高效范围查询。
+
+字段名	类型	说明	索引类型
+id	BIGINT	全局唯一雪花 ID	Primary Key
+chat_id	VARCHAR(64)	会话唯一标识（私聊为 p_uid1_uid2，群聊为 g_gid）	Composite Index (chat_id, seq_id)
+seq_id	BIGINT	该会话内的绝对连续递增序号	Composite Index (chat_id, seq_id)
+from_uid	BIGINT	发送者 ID（AI 机器人为 0）	Normal Index
+content	TEXT	消息正文	-
+msg_type	TINYINT	消息类型 (0-文本, 1-图片, 2-文件, 3-AI总结)	-
+create_time	DATETIME	创建时间	-
+四、 10 天落地执行路线与人员分工
+针对 3 人团队、10 天交付的激进周期，必须实施高并行、低耦合的开发路线：
+
+同学 A (前端专家)：专注于 Vue3 + 状态机管理
+
+重点攻关： WebSocket 状态管理器（负责心跳、自动重连、前端消息队列去重、本地最大 seq_id 维护）。
+
+UI 落地： 聊天主界面、Markdown 渲染组件（用于 AI 回复展示）、群组切换。
+
+同学 B (后端基建)：专注于长连接网关与消息路由
+
+重点攻关： Spring WebSocket Handler 编写、集成 Redis Stream 实现跨节点消息投递、设计 Redis ZSet 消息缓存层。
+
+核心交付： 消息发送、历史同步、重连补盲的三个核心接口。
+
+同学 C (业务与 AI)：专注于校园建模与 Agent 异步工作流
+
+重点攻关： 编写普通群/班级群/课程群的创建策略（使用工厂模式解耦），接入大模型 API，编写 AI Worker 线程池及任务队列。
+
+核心交付： 权限拦截器（@GroupPermission）、每日 21:00 定时扫描消息生成日报的 Task。
+
+在这个预研方案中，我们把重点从“炫目但无用的技术堆砌”转变为“解决分布式长连接消息不丢不乱、以及大模型高延迟并发”的真正工程痛点上。
+
+你觉得在你们目前的团队里，这三个方向（前端状态机、后端消息流水线、AI异步工作流），哪一个模块对你们来说最具挑战性？
+
+给我系统架构，各模块的设计方案
+
+针对你的团队规模（3个人）与紧迫的时间周期，我们要坚决抛弃过度设计的组件，采用模块化单体（Modular Monolith）架构，把重心放在“如何用最少的代码撑起高可用长连接”与“AI 异步高并发”上。
+
+以下是为你量身定制的“麦思哲（MaiSiZhe）”系统架构与各模块深化设计方案：
+
+一、 系统架构设计
+系统采用单体多线程 + 轻量消息总线的拓扑结构。即使未来部署多节点负载均衡，也能通过 Redis 完美解决多端通信与路由问题。
+
+1.1 核心数据流向拓扑
+┌──────────────────────────────────────────────────────────────────────────┐
+│                               表现层 (Vue3 客户端)                        │
+└────────────────────────────────────┬─────────────────────────────────────┘
+                                     │ HTTP (JWT) / WSS (Websocket)
+┌────────────────────────────────────▼─────────────────────────────────────┘
+│                               核心网关与接口层                            │
+│  ├─ WebSocket 网关 (基于 Spring Session + 原生 WebSockethandler 拦截)     │
+│  └─ REST API 控制器 (Spring Security + JWT 鉴权认证)                      │
+└──────┬─────────────────────────────┬──────────────────────────────┬──────┘
+       │                             │                              │
+┌──────▼──────────────────────┐┌─────▼──────────────────────┐┌──────▼──────┐
+│        消息流水线模块        ││         业务上下文         ││   AI 异步工作流 │
+│ ├─ 双轴定序器 (Redis INCR)  ││ ├─ 用户/好友 (RBAC 核心)   ││ ├─ 环形任务队列 │
+│ ├─ 漫游缓存层 (Redis ZSet)  ││ ├─ 校园组织架构 (群组策略) ││ ├─ 异步线程池   │
+│ └─ 路由总线 (Redis Stream)  ││ └─ 混合权限校验器         ││ └─ LLM 客户端  │
+└──────┬──────────────────────┘└─────┬──────────────────────┘└──────┬──────┘
+       │                             │                              │
+┌──────┴─────────────────────────────┴──────────────────────────────┴──────┐
+│                                  基础设施层                              │
+│  ├─ MySQL (物理聚簇存储，chat_id + seq_id 联合索引)                      │
+│  └─ 外部大模型 API (DeepSeek / Qwen 接口层)                              │
+└──────────────────────────────────────────────────────────────────────────┘
+二、 核心模块深化设计方案
+2.1 长连接网关与消息投递模块（同学 B 负责）
+拒绝使用高大上但难以控制底层的 STOMP，直接采用 Spring 原生 WebSocketHandler，配合 Redis Stream 做分布式消息路由总线 。
+
+1. 核心交互流程（时序设计）
+第 1 步【客户端发送】：客户端 A 通过 WS 连接向服务端发送 JSON 消息，携带 client_msg_id。
+
+
+第 2 步【去重与定序】：服务端拦截消息，利用 Redis SETNX 检查 client_msg_id 防止重发。验证通过后，调用 INCR seq:chat:{chat_id}，生成该会话内绝对连续递增的 Sequence ID 。
+
+第 3 步【双写与发布】：
+
+异步写库：将消息丢入异步线程池，写入 MySQL。
+
+
+热数据同步：将消息存入 Redis ZSet（chat:msg:{chat_id}），以 seq_id 作为 Score，只保留最近 100 条 。
+
+
+总线广播：将消息发布到 Redis Stream 频道 。
+
+第 4 步【跨节点消费】：所有集群节点（通过集群或单机多端口部署）都在监听该 Redis Stream。一旦收到消息，节点检查本地 UserSessionManager，若接收方用户连接在本节点，立即通过底层 TCP 连接推送到客户端。
+
+2. 断线重连与漫游补盲机制
+[断网重连成功] ──► 客户端发送 HTTP 请求: /api/msg/sync?chat_id=X&last_seq=105
+                                                │
+                       ┌────────────────────────┴────────────────────────┐
+                       ▼ (优先查缓存)                                     ▼ (失效走兜底)
+             Redis ZSet: 获取 Score > 105                               MySQL: 物理索引扫描
+                       │                                                 │
+                       └────────────────────────┬────────────────────────┘
+                                                ▼
+                                    打包全部增量消息，一次性响应
+2.2 AI Agent 异步协作模块（同学 C 负责）
+将 AI 建模为 user_id = 0 的虚拟实体，自动继承所有群组和权限逻辑 。为防止大模型请求长耗时（3~10秒）把长连接线程拉崩，必须做严格的异步线程隔离与削峰 。
+
+1. Agent 核心工作流设计
+群聊接收到消息 ──► 触发拦截器: 是否命中关键字 / 是否 @AI
+                            │
+                            ▼ (是)
+1. 立即由核心长连接线程向群内广播一条“占位消息” (内容: "AI 正在思考中...", msg_type = AI_PLANNING)
+2. 将该请求封装为 AI_Task，投递至本地 java.util.concurrent.LinkedBlockingQueue
+                            │
+                            ▼ (网关 I/O 线程释放，长连接不卡顿)
+                  AIWorker 线程池异步消费队列
+                            │
+                            ├─► a. 提取会话上下文 (从 Redis ZSet 中拉取最近 5 条历史聊天记录)
+                            ├─► b. 组装 Prompt 模板
+                            └─► c. 阻塞调用大模型 API (DeepSeek/Qwen)
+                            │
+                            ▼ (收到模型完整回复 / 或者流式分块)
+调用 MessageService.send(from_uid = 0, to_chat_id = X) 走 2.1 节的标准投递链路，更新/覆盖原占位消息
+2. 定时日报（Workflow）设计
+利用 Spring Task 建立定时任务，每日 21:00 自动触发 ：
+
+读取热区：利用 Redis ZSet 提取各群组当日最后 50 条消息。
+
+智能清洗：过滤掉低价值图片、表情包消息，保留文本。
+
+Prompt 摘要：投递给大模型，使用大模型角色（System: 你是班级的高效秘书...）生成结构化的 markdown 群日报。
+
+
+自动推送：以 user_id = 0 身份向群内群发一条 msg_type = AI_SUMMARY 的消息 。
+
+2.3 权限与校园场景策略模块（同学 C 负责）
+采用 RBAC 角色 + 组织资源策略模式（Strategy Pattern） 。
+
+1. 动态群组组建策略（代码解耦关键）
+定义统一的群组创建接口 GroupCreateStrategy ：
+
+
+NormalGroupStrategy（普通群）：任何人可建，直接落库 。
+
+ClassGroupStrategy（班级群）：校验建群人是否为班长/辅导员，自动根据行政班级档案拉取全班学生。
+
+
+CourseGroupStrategy（课程群）：教师一键创建，传入课程 ID，业务层自动触发多表联查（班级-课程-学生映射表），批量导入多班级成员 。
+
+Java
+// 拒绝 if-else 地狱，使用工厂模式动态路由
+public class GroupStrategyFactory {
+    @Autowired
+    private Map<String, GroupCreateStrategy> strategyMap;
+    
+    public GroupCreateStrategy getStrategy(GroupTypeEnum type) {
+        return strategyMap.get(type.getStrategyName());
+    }
+}
+2. 切面混合权限控制
+在控制器或 WebSocket 处理器入口，使用自定义注解 @GroupPermission 进行动态拦截 ：
+
+Java
+@GroupPermission(requiredRole = MemberRoleEnum.ADMIN, allowGroupTypes = {GroupTypeEnum.COURSE})
+系统通过 AOP 切面统一拦截，优先判断用户的系统全局角色（学生/教师/管理员），再拦截其在当前操作群组内的身份（群主/管理员/普通成员），实现三维复合权限判定 。
+
+2.4 前端长连接状态机模块（同学 A 负责）
+前端绝对不能把 WebSocket 当作简单的组件引入，必须封装为全局中心状态机（WebsocketManager） 。
+
+1. 核心前端数据结构设计 (Pinia Store)
+TypeScript
+export const useChatStore = defineStore('chat', {
+  state: () => ({
+    activeChatId: '' as string,
+    messages: {} as Record<string, Message[]>, // key 为 chat_id，值为有序消息数组
+    lastSeqMap: {} as Record<string, number>,  // 核心：记录每个会话本地收到的最大 seq_id
+    sendQueue: [] as Message[],               // 本地发送队列，用于实现断网状态下的“发送中/失败”红点
+  }),
+  actions: { ... }
+})
+2. 前端健壮性策略
+心跳双向维系：每 25 秒由前端发送一条紧凑的 PING 字符串，后端必须在 5 秒内回复 PONG。若超时，前端主动执行 close() 并触发断线重连状态机。
+
+滑动窗口排序：由于前端可能在重连时同时收到 WS 推送和 HTTP 补盲包，前端收到任何消息后，必须根据 seq_id 执行二分法插入排序，彻底杜绝 UI 层的消息乱序交织。
+
+三、 数据库设计方案 (核心精简、拒绝分表陷阱)
+在 1000 级并发与校园组织规模下，坚决使用单表加“物理联合索引”代替按月分表，这样可以获得极高的高效物理连续扫描性能。
+
+3.1 核心群组表 (im_group)
+SQL
+CREATE TABLE `im_group` (
+  `id` bigint NOT NULL COMMENT '群全局唯一ID',
+  `name` varchar(100) NOT NULL COMMENT '群名称',
+  `type` tinyint NOT NULL COMMENT '群类型: 0-普通群, 1-班级群, 2-课程群',
+  `owner_id` bigint NOT NULL COMMENT '群主ID',
+  `create_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+3.2 消息历史物理表 (im_message)
+
+核心：放弃按月分表 。利用 chat_id 与 seq_id 组成的复合索引。在 InnoDB 引擎中，相同会话的聊天记录会在数据页内尽可能近地紧凑排列，分页拉取（漫游历史）的速度等同于局部顺序读。
+
+SQL
+CREATE TABLE `im_message` (
+  `id` bigint NOT NULL COMMENT '全局唯一雪花主键',
+  `chat_id` varchar(64) NOT NULL COMMENT '会话唯一标识(私发:p_uid1_uid2, 群聊:g_gid)',
+  `seq_id` bigint NOT NULL COMMENT '当前会话内绝对连续递增序号',
+  `from_uid` bigint NOT NULL COMMENT '发送者ID(0代表AI机器人)',
+  `content` text NOT NULL COMMENT '消息正文',
+  `msg_type` tinyint NOT NULL DEFAULT '0' COMMENT '消息类型:0-文本,1-图片,2-文件,3-AI日报',
+  `create_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_chat_seq` (`chat_id`, `seq_id`) USING BTREE, -- 极度关键：保证双轴定序的唯一性与查询速度
+  KEY `idx_from_uid` (`from_uid`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+四、 10天落地项目管理矩阵
+为了让 3 个人的团队在 10 天内不扯皮、并行产出，请严格遵循下表安排：
+
+开发阶段	同学 A (前端专家)	同学 B (后端网关)	同学 C (业务与 AI)
+Day 1~2
+
+
+(数据与鉴权)
+
+搭建 Vue3 骨架，完成 Pinia 状态管理层设计，编写登录注册 UI。	
+初始化 SpringBoot 架构，集成 MySQL 基础表，实现基于 JWT 的登录拦截认证 。
+
+设计数据库结构，编写全局通用异常处理、统一返回对象及基础 RBAC 权限表 。
+
+Day 3~5
+
+
+(长连接攻坚)
+
+编写 WebsocketManager，实现底层的自动心跳、重连重试和滑动窗口排序。	
+编写原生 WebSocketHandler，搭建 Redis Stream 分布式广播机制 。
+
+落地群组创建的工厂策略模式 ，编写班级、课程的动态导入逻辑 。
+
+Day 6~7
+
+
+(AI 异步协同)
+
+开发聊天主界面，完成 Markdown 与代码块的优雅渲染（适配 AI 回复）。	接入 Redis ZSet 消息缓存层，编写离线重连的 /message/sync 补盲接口。	
+建立 AI 异步任务阻塞队列与独立线程池，对接 DeepSeek / Qwen API 。
+
+Day 8~9
+
+
+(系统联调)
+
+与后端联调长连接链路，测试弱网断线重连、漫游历史拉取、@AI 占位符效果。	与前端进行全链路消息不丢、不乱压测，测试多节点环境下消息能否精准触达。	
+联调 AI 异步流式回复投递，编写并测试每晚 21:00 自动日报的定时任务 。
+
+Day 10
+
+
+(交付与复盘)
+
+清理前端 Console 报错，打包优化静态资源。	
+使用 Docker-Compose 封装 Nginx+Redis+MySQL+Jar 包，实现一键部署 。
+
+整理系统设计说明书，准备答辩/面试防御材料。
+这套精炼的方案直接把 ChatGPT 飘在空中的“按月分表、STOMP、分布式一致性”落地成了“联合索引聚簇、Redis Stream 网关广播、AI 线程隔离队列”的实战级架构。这种选型不仅容易实现，在面试时也能理直气壮地和面试官推演底层逻辑。
+
+分工矩阵已经明确，你们计划在接下来的第一阶段（Day 1~2），先从后端的 JWT 鉴权与数据库初始化开始切入，还是直接先把前端的 Pinia 状态机搭起来？
+
+给我后端各模块的详细设计，一次回答不完可以分多次对话给我
+
+既然我们确定了以“模块化单体架构（Modular Monolith）”作为系统的底座，并且引入了 Redis Stream 和异步削峰队列来替代那些华而不实的设计，后端的落地就需要非常严密的模块划分。
+
+后端逻辑十分庞大，为了保证你能彻底吸收这些“大厂级”的硬核设计，我将分两次为你拆解。
+
+本篇（Part 1）我们将聚焦最底层的核心基建与 IM 链路：
+
+后端全局 DDD-lite 目录结构设计
+
+安全与三维复合权限模块 (security)
+
+WebSocket 长连接与消息流水线模块 (websocket & message)
+
+一、 后端全局架构与目录结构 (DDD-lite)
+为了保证 3 个人能并行开发且代码不冲突，我们采用轻量级领域驱动（DDD-lite）设计 。摒弃微服务，但保留微服务的模块化思想。
+
+Plaintext
+MaiSiZhe/backend/src/main/java/com/maisizhe
+├── common/           # 全局公共组件 (常量、枚举、全局异常、统一返回体)
+├── config/           # 框架配置层 (RedisConfig, WebSocketConfig, ThreadPoolConfig等)
+├── security/         # 认证与复合权限模块 (JWT, AOP权限拦截)
+├── websocket/        # 长连接网关层 (原生 WebSocketHandler, Session管理)
+├── modules/          # 核心业务域
+│   ├── user/         # 用户域
+│   ├── group/        # 群组域 (包含建群策略模式)
+│   ├── message/      # 消息域 (双轴定序、Redis ZSet缓存、MySQL落库)
+│   └── ai/           # AI 协作域 (Agent异步任务队列、大模型调用)
+├── infrastructure/   # 基础设施防腐层 (外部 API 客户端、Redis 工具类)
+└── scheduler/        # 定时任务 (每日 AI 群日报等)
+这种结构的优势在于：业务边界极其清晰，后续如果用户量暴增，你可以直接把 websocket 或 ai 包单独拎出来打成一个独立的 Jar 包，平滑过渡到微服务 。
+
+二、 安全与复合权限模块 (security)
+这里不采用简单的“管理员/普通用户”粗粒度控制，而是实现一套贴合校园业务的三维复合权限体系 。
+
+1. 核心鉴权组件
+
+JWT 过滤器 (JwtAuthenticationFilter)：拦截所有 HTTP 请求，解析 Header 中的 Token，并将用户信息存入 UserContextHolder（基于 ThreadLocal），实现上下游无状态调用 。
+
+2. 三维权限 AOP 设计
+系统需要同时判断用户的全局角色、操作的资源类型（普通群/班级群/课程群）、以及用户在该群内的群身份 。我们通过自定义注解 @GroupPermission 和 AOP 切面来实现统一校验 。
+
+核心设计代码逻辑：
+
+Java
+// 1. 定义注解
+@Target(ElementType.METHOD)
+@Retention(RetentionPolicy.RUNTIME)
+public @interface GroupPermission {
+    MemberRoleEnum[] requiredRoles() default {MemberRoleEnum.MEMBER}; // 默认需要群成员身份
+    GroupTypeEnum[] allowGroupTypes() default {}; // 允许操作的群类型
+}
+
+// 2. 切面实现 (GroupPermissionAspect)
+@Aspect
+@Component
+public class GroupPermissionAspect {
+    @Before("@annotation(groupPermission)")
+    public void checkPermission(JoinPoint joinPoint, GroupPermission groupPermission) {
+        // 1. 从 ThreadLocal 获取当前用户 ID
+        // 2. 解析方法参数，提取 targetGroupId
+        // 3. 查询数据库/缓存，获取该群的类型 (GroupType) 和用户在该群的身份 (MemberRole)
+        // 4. 执行交叉比对：
+        //    - 如果是学生角色，拦截创建“班级群”和“课程群”的请求。
+        //    - 如果群类型不在 allowGroupTypes 范围内，抛出 GroupPermissionException。
+        //    - 如果群内身份低于 requiredRoles，抛出 GroupPermissionException。
+    }
+}
+这套机制让你的 Controller 层极其干净，一行权限判断代码都不用写。
+
+三、 WebSocket 网关与消息流水线模块 (websocket & message)
+这是整个系统最值钱、面试最能打的部分。我们彻底抛弃 STOMP，采用 Spring 原生 WebSocket + Redis Stream + 双轴定序架构 。
+
+1. 长连接网关层 (websocket 包)
+负责维持客户端与服务端的物理连接。
+
+
+UserSessionManager：维护一个并发安全的 ConcurrentHashMap<Long, WebSocketSession>，记录当前节点上连接了哪些用户 。处理心跳保活（Ping/Pong），如果检测到掉线则清除 Session。
+
+
+MessageDispatcher：所有客户端发来的消息统一进入这里。它负责解析 JSON，根据指令类型路由给具体的 Service 处理 。
+
+2. 消息双轴定序与投递流程 (message 包)
+当 MessageDispatcher 收到一条群聊消息时，触发以下严格的硬核流水线：
+
+Step 1: 去重 (Deduplication)
+利用 Redis 的 SETNX client:msg:{client_msg_id} 指令（设置 5 分钟过期）。如果返回 false，说明是前端网络抖动造成的重复发送，直接丢弃 。
+
+Step 2: 双轴定序 (Sequencing)
+调用 Redis INCR seq:chat:{chat_id}，生成该群内绝对连续递增的 Sequence ID 。同时调用 SnowflakeIdGenerator 生成全局唯一的雪花 ID 作为主键 。
+
+Step 3: 异步持久化 (Async Persistence)
+将消息本体推入 Spring 的异步线程池，写入 MySQL 的单表（利用 chat_id 和 seq_id 的联合索引保证查询极速） 。
+
+Step 4: 热缓存漫游 (ZSet Cache)
+将消息存入 Redis ZSet chat:msg:{chat_id}，以 seq_id 为 Score，保留最近 100 条。这保障了用户断网重连拉取最新消息时，直接击中内存，保护数据库 。
+
+Step 5: 集群总线广播 (Redis Stream)
+将封装好的消息 JSON 投递到 Redis Stream 频道 。
+
+Step 6: 本地消费与推送 (Push)
+所有 Spring Boot 节点都在监听这个 Stream。当节点监听到消息时，去自己的 UserSessionManager 里查找接收方用户。如果用户在自己这台机器上，调用 session.sendMessage() 推送出去 。
+
+这套架构完美解决了“消息丢失、消息乱序、多节点无法通信”三大分布式 IM 痛点。
+
+这三个底层模块构成了系统的“通信与安全底座”。只有这套底座坚如磐石，后续的 AI 异步协作和群组业务才能顺畅运转。
+
+对于这套长连接网关与消息路由的底层设计，你是否已经清晰？如果没问题，下一次回复我将为你深度拆解另外两个核心：AI Agent 异步削峰工作流（含大模型对接） 以及 校园场景的策略模式群组模块。
+
+继续
+
+承接上篇（Part 1）关于基建与长连接流水线的底层设计，本篇（Part 2）我们将聚焦于系统中最具业务深度和求职亮点的另外两个核心后端模块：
+
+AI Agent 异步削峰工作流模块 (modules/ai)
+
+校园场景的策略模式群组模块 (modules/group)
+
+这两个模块的设计直接决定了你的项目在面试时是表现为一个空洞的“聊天 Demo”，还是一个真正具备高性能隔离思维与复杂业务抽象能力的实战工程。
+
+四、 AI Agent 异步削峰工作流模块 (modules/ai)
+1. 为什么要设计异步削峰？
+大模型（如 DeepSeek、Qwen）的 API 响应通常需要 3~10 秒 。如果群聊中有多人同时触发 @AI，直接在 WebSocket 的 I/O 线程或主业务线程中同步等待 HTTP 响应，网关的线程池会瞬间被榨干，导致整个系统的长连接大面积卡死甚至雪崩 。
+
+为此，我们必须设计一套基于动态占位符、阻塞队列与独立线程池隔离的异步工作流。
+
+2. 核心工作流详细设计
+整个 AI Agent 触发到响应的过程分为 4 个高度解耦的步骤：
+
+Step 1：拦截与占位符生成（生产者）
+当消息流水线（Message Pipeline）收到一条群消息时，MentionParser 解析器检测到内容命中 @AI。
+
+业务线程绝不阻塞，而是立即调用 MessageService 向群内广播一条特殊的占位消息（例如：内容为“AI 正在思考中...”，msg_type = MessageTypeEnum.AI_PLANNING） 。
+
+记录下这条占位消息的 seq_id 或 msg_id。
+
+将请求封装为 AiTask 对象，投递到内部的阻塞队列中。
+
+Step 2：任务队列与工作线程池隔离（削峰）
+构建一个独立的 AiWorkerPool，与网关的 I/O 线程池完全隔离。
+
+Java
+@Configuration
+public class AiThreadPoolConfig {
+    @Bean(name = "aiTaskExecutor")
+    public Executor aiTaskExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(4);       // 根据购买的 API 并发限制微调
+        executor.setMaxPoolSize(8);
+        executor.setQueueCapacity(500);    // 环形缓冲阻塞队列
+        executor.setThreadNamePrefix("ai-worker-");
+        executor.setRejectedExecutionHandler(new ThreadPoolExecutor.DiscardOldestPolicy()); // 满了丢弃最早的
+        executor.initialize();
+        return executor;
+    }
+}
+Step 3：上下文重组与大模型调用（智能体消费）
+工作线程从队列中唤醒并认领任务后，执行以下核心逻辑：
+
+
+拉取历史上下文：AI 模块直接调用 Redis 工具类，从 ZSet 缓存（chat:msg:{chat_id}）中逆序拉取最近 5 轮的历史聊天记录 ，送入 ConversationMemory 动态重组为标准的 Chat Context（规避换设备丢历史的问题）。
+
+Prompt 模板渲染：根据群组类型（如课程群、实验室群），自动套用系统预设的 System Prompt 模板（例如：“你现在是计算机原理课程的助教机器人...”）。
+
+
+阻断/流式发起请求：调用适配了多模型的统一客户端 LLMClient（屏蔽底层 DeepSeek 或 Qwen 的切换细节） 。
+
+Step 4：Agent-as-User 统一推回（回调落库）
+大模型生成完毕后（或通过 SSE 流式分块结束），工作线程不需要自己去触碰长连接 Session，而是直接调用通用的消息发送接口：
+
+Java
+// AI 在系统的实体即为 user_id = 0
+MessageDTO aiResponse = MessageDTO.builder()
+        .chatId(task.getChatId())
+        .fromUid(0L)  // Agent-as-User 的核心体现 [cite: 16, 39]
+        .content(llmResultText)
+        .msgType(MessageTypeEnum.AI_ANSWER.getCode())
+        .replaceMsgId(task.getPlaceholderMsgId()) // 携带需要被替换的占位符ID
+        .build();
+
+messageService.send(aiResponse);
+这样，AI 的回复完美继承了普通用户发消息的所有底层逻辑（自动触发 Redis INCR 产生 Sequence ID 、写库、写 ZSet 缓存 、通过 Redis Stream 进行多节点集群广播 ）。
+
+五、 校园场景的策略模式群组模块 (modules/group)
+1. 为什么要使用策略模式？
+在真实的校园业务中，创建群聊绝不是简单的“往数据库插入一条群记录”。不同的群，其准入限制、自动化拉人逻辑完全不同：
+
+
+普通群：学生自由组建，点击直接创建 。
+
+班级群：必须由班长或辅导员触发，且需要联动校园行政班级档案，自动把该行政班级的所有在册学生全部拉入群内。
+
+
+课程群：教师一键创建，传入一个课程代码，系统必须去排课表、选课表里做多表联查，自动把选了这门课的多个班级、所有学生批量导入群内 。
+
+如果把这些复杂的业务逻辑全部塞进一个 createGroup 方法里，代码会充斥着大量的 if-else 地狱，极难维护。我们采用工厂模式 + 策略模式（Strategy Pattern）进行优雅解耦 。
+
+2. 策略模式架构设计
+首先，抽象出统一的群组创建策略接口：
+
+Java
+public interface GroupCreateStrategy {
+    // 返回群组组建结果
+    GroupVO create(GroupCreateDTO dto, Long operatorId);
+    // 标识当前策略支持的群组类型
+    GroupTypeEnum getGroupType();
+}
+接下来，实现三个独立的策略类，各司其职：
+
+① 课程群组建策略 (CourseGroupStrategy)
+教师创建课程群时，需要自动打通教务数据：
+
+Java
+@Service("courseGroupStrategy")
+public class CourseGroupStrategy implements GroupCreateStrategy {
+    @Autowired
+    private GroupMapper groupMapper;
+    @Autowired
+    private EducationInfoMapper eduMapper; // 模拟教务系统防腐层
+    
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public GroupVO create(GroupCreateDTO dto, Long operatorId) {
+        // 1. 鉴权：通过 operatorId 判定当前操作者在教务系统中是否为该课程的授课教师
+        // 2. 物理落库：生成群信息，写入 im_group 表 
+        Long groupId = snowflakeIdGenerator.nextId();
+        
+        // 3. 核心亮点逻辑：根据选课档案自动拉人 
+        // 跨表联查：根据 course_id 查询 select_course_relation，拉取所有选课学生ID
+        List<Long> studentIds = eduMapper.selectStudentIdsByCourseId(dto.getCourseId());
+        
+        // 4. 批量异步/同步插入 im_group_member 表
+        groupMemberMapper.batchInsertMembers(groupId, studentIds, MemberRoleEnum.MEMBER.getCode());
+        // 5. 将教师本人设为群主
+        groupMemberMapper.insertMember(groupId, operatorId, MemberRoleEnum.OWNER.getCode());
+        
+        return GroupVO.from(groupId, dto.getGroupName());
+    }
+
+    @Override
+    public GroupTypeEnum getGroupType() { return GroupTypeEnum.COURSE; }
+}
+② 工厂动态路由 (GroupStrategyFactory)
+利用 Spring 的依赖注入特性，在项目启动时自动将所有策略注册到 Map 中，彻底干掉 if-else：
+
+Java
+@Component
+public class GroupStrategyFactory {
+    // Spring 会自动将所有实现了 GroupCreateStrategy 的 Bean 注入到这个 Map 中
+    private final Map<GroupTypeEnum, GroupCreateStrategy> strategies = new ConcurrentHashMap<>();
+
+    @Autowired
+    public GroupStrategyFactory(List<GroupCreateStrategy> strategyList) {
+        for (GroupCreateStrategy strategy : strategyList) {
+            strategies.put(strategy.getGroupType(), strategy);
+        }
+    }
+
+    public GroupCreateStrategy getStrategy(Integer typeCode) {
+        GroupTypeEnum type = GroupTypeEnum.getByCode(typeCode);
+        GroupCreateStrategy strategy = strategies.get(type);
+        if (strategy == null) {
+            throw new BusinessException("未找到对应的群组组建策略");
+        }
+        return strategy;
+    }
+}
+在 Controller 层中，调用变得极其丝滑：
+
+Java
+@PostMapping("/create")
+public Result<GroupVO> createGroup(@RequestBody GroupCreateDTO dto) {
+    Long operatorId = UserContextHolder.getUserId(); // 从 ThreadLocal 获取 [cite: 17, 18]
+    // 动态获取策略并执行
+    GroupCreateStrategy strategy = groupStrategyFactory.getStrategy(dto.getType());
+    GroupVO vo = strategy.create(dto, operatorId);
+    return Result.success(vo);
+}
+六、 补充：分布式环境下的数据最终一致性思考
+在面试时，面试官极有可能针对 Part 1 和 Part 2 结合追问：“你在消息流水线里又是写 MySQL，又是写 Redis ZSet，又是发 Redis Stream ，如果中途有一步挂了导致数据不一致（例如 DB 成功但 Redis 失败），你怎么处理？”
+
+为了让这个模块化单体方案在面试时具备无懈可击的防御力，我们提供一套“轻量级本地事务+重试监听器”的兜底机制：
+
+强一致性事务边界：
+在接收消息时，DB 持久化和 Redis INCR（双轴定序）作为同一个本地事务执行（或者优先让 Redis INCR 成功获取 seq_id ，再作为唯一索引字段写入 MySQL ）。如果 MySQL 报错触发唯一键冲突（说明去重失败或定序异常），事务直接回滚，向前端返回失败。
+
+异步补偿事件流 (listener)：
+当 MySQL 持久化成功后，通过 Spring 的 ApplicationEventPublisher 发布一个 MessageSavedEvent 。
+由独立的 MessageSavedListener 异步监听该事件 ，专门去负责“写入 Redis ZSet 缓存” 和 “向 Redis Stream 发送广播” 。如果 Redis 偶发性网络抖动失败，监听器会触发配置好的 Spring Retry 重试机制（重试 3 次）。若依然失败，则记录死信日志（Log），由定时任务 scheduler 进行每分钟的增量数据比对补盲。
+
+后端模块设计总结
+至此，后端最核心的五大模块已全部拆解完毕：
+
+基建层通过 DDD-lite 做好并行的代码边界隔离 。
+
+安全层通过 三维复合 AOP 切面 完成校园场景的鉴权 。
+
+网关层通过 原生 WebSocket + Redis Stream 支撑起高可扩展的长连接通信 。
+
+AI 层通过 异步削峰线程池 完美解决了大模型的长耗时高并发陷阱 。
+
+业务层通过 策略工厂模式 将学校错综复杂的行政与教学建群逻辑优雅解耦 。
+
+整个后端的骨架已经非常清晰硬核。你们的团队目前对于这套技术方案的整体逻辑是否还有疑问？如果大家都觉得闭环了，你可以直接拿着这套设计分配给同学 B 和同学 C，按照我们在 10 天矩阵里划分好的节奏正式开工了！

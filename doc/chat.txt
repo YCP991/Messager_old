@@ -1,0 +1,1822 @@
+先总结一下，这是一个什么项目，它有哪些亮点，有哪些可以改进的地方
+项目总结
+
+这个项目本质上是一个：
+
+面向校园场景的小型团队即时通讯平台（IM），并融合AI Agent能力，兼具协作工具属性。
+
+项目名称：
+
+麦思哲（基于 Vue3 + Spring Boot 的智能 Agent 校园即时通讯系统）
+
+如果一句话概括：
+
+它不是“又一个聊天软件”，而是一个“面向校园组织的、具备 AI 协作能力的轻量级私有化 IM 平台”。
+
+一、这个项目到底是什么定位？
+
+如果从产品角度来看，它介于以下产品之间：
+
+产品	特点	麦思哲对应能力
+微信	即时通讯	私聊、群聊
+QQ	班级群	班级群、课程群
+钉钉	组织协作	权限管理、公告
+飞书	AI办公	AI摘要、提醒
+Slack	私有部署协作	小团队私有化
+Notion AI	内容总结	群日报、AI助手
+
+换句话说：
+
+麦思哲 = 微信 + 飞书AI + Slack（校园版）
+
+但它更聚焦：
+
+班级
+实验室
+社团
+小型研发团队
+
+这些“小组织”。
+
+这是它最大的产品差异化。
+
+二、项目的核心亮点（真正值得讲的）
+
+我觉得这个项目最大的亮点其实不是AI，而是：
+
+你把一个看似简单的聊天系统，做成了一个完整的软件工程项目。
+
+如果面试的话，我会总结成下面几个亮点。
+
+亮点1：真正的即时通讯系统设计
+
+这是整个项目最硬核的部分。
+
+实现了完整IM链路
+
+用户发送消息：
+
+前端
+ ↓
+WebSocket(STOMP)
+ ↓
+Spring Boot
+ ↓
+消息入库(MySQL)
+ ↓
+Redis缓存
+ ↓
+推送订阅用户
+ ↓
+客户端排序展示
+
+并不是：
+
+WebSocket收到消息
+↓
+直接广播
+
+而是考虑了：
+
+消息可靠性
+
+解决：
+
+WebSocket断线导致丢消息。
+
+方案：
+
+客户端记录最后消息ID
+↓
+重连
+↓
+HTTP拉取增量消息
+↓
+补偿同步
+
+达到：
+
+最终一致性。
+
+消息顺序性
+
+解决：
+
+高并发群聊：
+
+A
+B
+C
+同时发送
+
+可能乱序。
+
+方案：
+
+Snowflake消息ID
++
+客户端排序
++
+clientMsgId去重
+
+这是比较成熟的IM设计思想。
+
+亮点2：校园场景建模非常好
+
+很多学生项目：
+
+群=群。
+
+结束。
+
+但是这个项目真正做了业务建模。
+
+你设计了：
+
+普通群
+班级群
+课程群
+
+并且：
+
+课程群：
+
+课程
+ ↓
+多个班级
+ ↓
+自动拉人
+
+例如：
+
+数据库原理：
+
+22计科1班
+22计科2班
+22软件1班
+
+自动组成课程群。
+
+这个设计非常贴近真实校园业务。
+
+属于：
+
+有业务思考，而不是CRUD。
+
+亮点3：权限体系设计较完整
+
+很多项目：
+
+user
+admin
+
+结束。
+
+你这里实际上是：
+
+RBAC + 资源权限混合模型
+
+角色：
+
+学生
+老师
+管理员
+
+资源：
+
+普通群
+班级群
+课程群
+
+再叠加：
+
+群主
+管理员
+普通成员
+
+形成：
+
+角色 × 群类型 × 群身份
+
+例如：
+
+学生：
+
+不能建班级群
+不能建课程群
+可以建普通群
+
+老师：
+
+建课程群自动成为群主
+
+管理员：
+
+跨群操作
+
+这种权限组合在面试里很容易展开。
+
+亮点4：AI Agent融入方式合理
+
+这是我最喜欢的一点。
+
+很多学生项目：
+
+“接个GPT接口”。
+
+结束。
+
+没有意义。
+
+而你这里：
+
+AI被设计成：
+
+一个特殊用户（Bot）。
+
+即：
+
+group_member
+id=0
+
+进入群聊。
+
+这是非常优雅的设计。
+
+意味着：
+
+AI：
+
+可以：
+
+被@
+发消息
+产生消息记录
+参与权限体系
+拥有头像昵称
+
+数据库不用特殊处理。
+
+属于：
+
+用业务建模解决AI问题。
+
+这是高级设计。
+
+亮点5：AI功能并不是“聊天机器人”
+
+而是：
+
+AI协作助手
+
+包括：
+
+群内问答
+@AI
+帮我解释红黑树
+
+回复。
+
+群日报
+
+每天：
+
+扫描最近30条消息
+↓
+重要性加权
+↓
+生成摘要
+
+这是：
+
+Agent Workflow。
+
+不是ChatBot。
+
+关键词提醒
+
+比如：
+
+用户设置：
+
+实验报告
+DDL
+考试
+
+有人提到：
+
+AI私信提醒
+
+这很像：
+
+飞书智能提醒。
+
+亮点6：消息存储考虑了扩展性
+
+很多学生项目：
+
+message
+
+一个表。
+
+结束。
+
+你的设计：
+
+按月分表
+
+例如：
+
+message_202606
+message_202607
+message_202608
+
+利用：
+
+MyBatis-Plus动态表名
+
+实现路由。
+
+同时：
+
+Redis缓存热消息：
+
+Redis
+↓
+MySQL
+
+冷热分离。
+
+说明：
+
+已经开始考虑“如果用户量上来怎么办”。
+
+三、这个项目最大的不足
+
+说实话，这个项目已经超过绝大多数本科课程设计。
+
+但是仍然存在一些明显短板。
+
+不足1：整体规模过大
+
+这是最大的风险。
+
+实际上你们计划：
+
+10天完成：
+Vue
+SpringBoot
+Redis
+MySQL
+WebSocket
+AI
+权限
+OSS
+SSE
+分表
+Redis Pub/Sub
+
+……
+
+大约：
+
+9000~10000行代码
+
+对于三个人来说：
+
+10天非常激进。
+
+现实中：
+
+很多功能最后可能停留在：
+
+设计层面
+Demo层面
+半实现层面
+
+面试官容易追问。
+
+不足2：AI部分仍然偏“外挂”
+
+虽然比接API强很多。
+
+但仍然是：
+
+触发
+↓
+调LLM
+↓
+返回结果
+
+严格意义上：
+
+它还不是真正的Agent。
+
+缺少：
+
+Tool Calling
+记忆系统
+规划能力
+任务执行能力
+
+如果强化：
+
+会非常加分。
+
+不足3：分布式设计还不够完整
+
+虽然提到了：
+
+Redis Pub/Sub
+多节点部署
+
+但实际上：
+
+缺少：
+
+WebSocket集群方案
+
+例如：
+
+Nginx
+↓
+Spring节点A
+Spring节点B
+Spring节点C
+
+用户连接在哪？
+
+如何路由？
+
+如何推送？
+
+真正成熟方案会引入：
+
+Kafka
+Redis Stream
+Netty Gateway
+
+做消息总线。
+
+不足4：消息一致性停留在最终一致
+
+现在：
+
+DB写成功
+Redis失败
+
+怎么办？
+
+Redis成功
+DB失败
+
+怎么办？
+
+没有完整方案。
+
+成熟方案：
+
+MQ
+Outbox Pattern
+CDC
+
+保证一致性。
+
+不足5：搜索能力较弱
+
+全文搜索：
+
+目前看像：
+
+LIKE '%关键词%'
+
+如果消息量大：
+
+性能会很差。
+
+更好的方案：
+
+Elasticsearch
+↓
+中文分词(IK)
+↓
+消息搜索
+
+体验会提升很多。
+
+四、如果让我给这个项目打分
+
+按照校赛/课程设计标准：
+
+9.5/10
+
+因为：
+
+已经远超普通“增删改查管理系统”。
+
+按照本科求职项目标准：
+
+8.5/10
+
+优势：
+
+WebSocket IM
+Redis
+分表
+AI
+权限设计
+校园业务建模
+
+足够拿去面试。
+
+不足：
+
+需要真正落地，而不是停留在计划书。
+
+按照互联网后端面试标准：
+
+7.5/10
+
+因为：
+
+缺少真正高并发和分布式落地：
+
+Kafka
+Redis Stream
+MQ一致性
+WebSocket集群
+Elasticsearch
+压测数据
+
+这些是进一步提升空间。
+
+五、如果继续迭代，我建议的升级路线
+
+如果有第二阶段开发，我会按这个顺序升级：
+
+第一优先级（最值）
+
+把IM做扎实：
+
+Kafka消息总线
+Redis Stream
+WebSocket集群
+压测报告(JMeter)
+
+这是后端最有含金量的部分。
+
+第二优先级
+
+升级AI：
+
+Tool Calling
+RAG知识库
+任务Agent
+待办生成与执行
+
+真正从：
+
+AI聊天
+
+升级成：
+
+AI协作助手。
+
+第三优先级
+
+提升搜索：
+
+Elasticsearch
+消息检索
+群文件检索
+AI语义搜索
+
+形成知识沉淀。
+
+第四优先级
+
+私有化部署：
+
+Docker Compose
+Kubernetes
+一键部署
+监控(Prometheus+Grafana)
+
+真正做到：
+
+实验室拿来就能用。
+
+最终评价
+
+这是一个**“以校园IM为核心、以AI协作为特色、兼顾工程实践与系统设计”的综合型项目**。
+
+它最大的价值不在于“做了一个聊天软件”，而在于：
+
+你们把即时通讯、权限体系、缓存分层、数据库设计、AI Agent、人机交互等多个知识点串成了一套完整系统。
+
+如果后续能把 WebSocket集群 + Kafka消息总线 + 真正Agent化AI 落地，这个项目完全可以从“优秀课程设计”，升级为一个能在后端实习面试中脱颖而出的代表项目。
+
+帮我生成一套系统设计方案
+麦思哲（基于Vue3 + Spring Boot的智能Agent校园即时通讯系统）系统设计方案
+1. 系统概述
+1.1 系统名称
+
+麦思哲（MaiSiZhe）——基于Vue3 + Spring Boot的智能Agent校园即时通讯系统
+
+1.2 系统目标
+
+麦思哲旨在构建一套面向校园场景的小型组织即时通讯平台，通过融合 AI Agent 能力，为班级、课程组、实验室、社团等组织提供：
+
+即时通讯服务；
+智能协作辅助；
+私有化部署能力；
+精细化权限管理；
+高扩展、高可维护的系统架构。
+
+系统兼顾学习讨论与团队协作需求，解决传统通讯工具广告干扰严重、定制能力不足、管理粒度粗等问题。
+
+1.3 设计目标
+
+系统设计需满足以下目标：
+
+功能目标
+
+实现：
+
+用户认证与授权；
+好友管理；
+私聊与群聊；
+班级群、课程群自动组建；
+AI Agent协作；
+文件传输；
+消息搜索；
+管理后台。
+性能目标
+
+满足：
+
+指标	目标
+在线用户数	1000+
+同时在线WebSocket连接	5000+
+单节点消息吞吐量	2000 msg/s
+消息平均响应时间	＜200ms
+离线消息恢复时间	＜2s
+AI响应时间	3～10s
+非功能目标
+
+满足：
+
+高可维护性；
+高扩展性；
+高可用性；
+数据一致性；
+安全性；
+易部署性。
+2. 总体架构设计
+
+系统采用：
+
+前后端分离 + 实时通讯 + 缓存加速 + AI异步协作架构
+
+总体架构如下：
+
+                ┌──────────────┐
+                │   浏览器端    │
+                │ Vue3+TS+Pinia│
+                └──────┬───────┘
+                       │HTTPS/WSS
+         ┌─────────────┴────────────┐
+         │                           │
+         ▼                           ▼
+ ┌─────────────┐           ┌────────────────┐
+ │ SpringBoot  │           │ AI调用服务模块 │
+ │ Web API层   │◄────────►│ DeepSeek/Qwen │
+ └─────┬───────┘           └────────────────┘
+       │
+       │
+       ▼
+┌──────────────┐
+│ WebSocket层  │
+│ STOMP Broker │
+└─────┬────────┘
+      │
+      ▼
+┌──────────────┐
+│ Service层    │
+└─────┬────────┘
+      │
+ ┌────┴────┬─────────┐
+ ▼         ▼         ▼
+Redis    MySQL      OSS
+缓存层   持久层     文件存储
+3. 系统架构设计
+
+采用经典四层架构。
+
+3.1 表现层（Presentation）
+
+职责：
+
+用户交互。
+
+技术：
+
+Vue3
+TypeScript
+Pinia
+Naive UI
+Axios
+Stomp.js
+
+主要模块：
+
+登录注册
+通讯录
+群组管理
+聊天窗口
+AI助手
+管理员后台
+3.2 接口层（Controller）
+
+职责：
+
+对外提供REST API与WebSocket接口。
+
+包括：
+
+HTTP接口
+/ auth
+/ user
+/ friend
+/ group
+/ message
+/ ai
+/ admin
+WebSocket接口
+/ws/chat
+/topic/group
+/queue/private
+3.3 业务层（Service）
+
+职责：
+
+实现核心业务逻辑。
+
+包括：
+
+用户服务
+好友服务
+群组服务
+消息服务
+AI服务
+权限服务
+搜索服务
+文件服务
+3.4 数据访问层（DAO）
+
+职责：
+
+数据库操作。
+
+技术：
+
+MyBatis-Plus
+Mapper
+动态表名插件
+4. 功能模块设计
+
+系统划分为七大模块。
+
+4.1 用户认证模块
+
+功能：
+
+登录；
+注册；
+JWT签发；
+Token刷新；
+修改资料；
+上传头像。
+
+流程：
+
+账号密码
+    ↓
+Spring Security认证
+    ↓
+JWT生成
+    ↓
+返回Token
+    ↓
+前端存储
+4.2 好友模块
+
+功能：
+
+添加好友；
+删除好友；
+搜索好友；
+修改备注；
+好友置顶；
+在线状态。
+
+Redis维护：
+
+online:user:{id}
+
+实现在线查询。
+
+4.3 群组模块
+
+群类型：
+
+普通群
+班级群
+课程群
+
+创建规则：
+
+普通群：
+
+所有用户可创建
+
+班级群：
+
+仅本班学生创建
+
+课程群：
+
+教师创建
+自动导入多个班级成员
+4.4 消息模块
+
+支持：
+
+文本消息
+图片消息
+文件消息
+AI回答
+AI摘要
+引用消息
+撤回消息
+
+发送流程：
+
+客户端
+ ↓
+WebSocket
+ ↓
+消息校验
+ ↓
+生成Snowflake ID
+ ↓
+消息入库
+ ↓
+Redis缓存
+ ↓
+推送目标用户
+4.5 AI Agent模块
+
+AI身份：
+
+特殊用户Bot
+user_id=0
+
+支持：
+
+群内问答
+@AI 帮我总结这节课重点
+
+生成：
+
+AI回答消息
+群日报
+
+定时任务：
+
+每日21:00
+
+扫描：
+
+最近30条消息
+
+生成：
+
+群摘要
+关键词提醒
+
+用户设置：
+
+实验报告
+DDL
+考试
+
+命中：
+
+AI私信提醒
+个人AI助手
+
+支持：
+
+上下文对话
+历史记录
+流式输出
+5. 数据库设计
+
+数据库遵循：
+
+第三范式（3NF）
+
+共设计11张核心表。
+
+用户模块
+user
+friend
+群组模块
+group_info
+group_member
+group_creation_code
+消息模块
+message_yyyyMM
+private_read_cursor
+group_read_cursor
+AI模块
+ai_session
+keyword_alert
+管理模块
+operation_log
+6. 消息存储设计
+
+采用：
+
+Redis + MySQL 双层存储。
+
+架构：
+
+发送消息
+    ↓
+MySQL持久化
+    ↓
+Redis缓存热消息
+    ↓
+WebSocket推送
+
+缓存：
+
+chat:private:{uid}
+chat:group:{gid}
+
+保存最近100条消息。
+
+分表设计
+
+消息表：
+
+message_202606
+message_202607
+message_202608
+……
+
+路由方式：
+
+message_ + yyyyMM
+
+利用：
+
+MyBatis-Plus DynamicTableName
+
+自动路由。
+
+7. 缓存设计
+
+Redis承担：
+
+在线状态
+online:user:{uid}
+
+TTL：
+
+60秒
+
+心跳续期。
+
+热消息缓存
+chat:group:{gid}
+chat:private:{uid}
+
+结构：
+
+ZSET
+
+Score：
+
+messageId
+消息去重
+client:msg:{clientMsgId}
+
+TTL：
+
+5分钟
+
+防止重复发送。
+
+8. 权限设计
+
+采用：
+
+RBAC + 资源权限模型。
+
+角色：
+
+学生
+教师
+管理员
+
+群身份：
+
+群主
+管理员
+普通成员
+
+权限判定：
+
+角色权限
++
+资源权限
++
+群身份权限
+
+通过：
+
+@GroupPermission(...)
+
+统一校验。
+
+9. 安全设计
+
+系统安全措施包括：
+
+身份认证
+
+采用：
+
+JWT
+Spring Security
+通信安全
+
+启用：
+
+HTTPS
+WSS
+
+防止窃听。
+
+WebSocket安全
+
+握手时：
+
+JWT校验
+用户绑定
+
+禁止匿名连接。
+
+接口安全
+
+实现：
+
+统一鉴权
+资源归属校验
+防水平越权
+文件安全
+
+限制：
+
+文件类型
+文件大小
+病毒检测预留
+10. AI设计方案
+
+采用：
+
+Agent-as-User设计模式。
+
+即：
+
+AI被视作普通用户。
+
+优势：
+
+无需特殊消息结构；
+自动融入权限体系；
+支持群聊；
+支持私聊；
+可扩展多个Bot。
+
+调用流程：
+
+@AI
+ ↓
+异步任务
+ ↓
+构造Prompt
+ ↓
+调用LLM
+ ↓
+生成消息
+ ↓
+推送群聊
+11. 部署设计
+
+推荐部署方式：
+
+开发环境
+Vue Dev Server
+SpringBoot
+MySQL
+Redis
+生产环境
+Nginx
+   ↓
+SpringBoot
+   ↓
+Redis
+MySQL
+OSS
+
+部署结构：
+
+Docker Compose
+
+实现一键部署。
+
+12. 可扩展设计
+
+未来可升级方向：
+
+IM增强
+
+引入：
+
+Kafka
+Redis Stream
+WebSocket集群
+
+提升并发能力。
+
+AI增强
+
+实现：
+
+RAG知识库
+Tool Calling
+任务Agent
+多智能体协作
+
+提升智能水平。
+
+搜索增强
+
+接入：
+
+Elasticsearch
+IK分词
+语义搜索
+
+提升检索体验。
+
+运维增强
+
+增加：
+
+Prometheus
+Grafana
+ELK
+SkyWalking
+
+实现监控与链路追踪。
+
+13. 系统设计总结
+
+麦思哲系统采用前后端分离架构，以 Spring Boot + Vue3 为核心，结合 WebSocket、Redis、MySQL 等技术实现高效即时通讯，并创新性地将 AI Agent 设计为特殊用户融入群组协作场景。系统在消息可靠性、权限管理、校园业务建模及智能协作方面进行了深入设计，兼顾了功能完整性与工程实践价值，具备良好的扩展能力和私有化部署能力，可满足校园班级、实验室及小型团队的即时沟通与智能协作需求。
+
+帮我具体设计一下项目结构
+
+我觉得这个项目如果真的打算做出来，而不是停留在课程设计文档层面，那么项目结构一定不能按“功能堆代码”的方式写，否则后面加 AI、分表、Redis、SSE 会直接炸掉。
+
+我建议把它设计成：
+
+单体应用 + 模块化架构（Modular Monolith）
+
+而不是一开始就拆微服务。
+
+原因很简单：
+
+课程设计时间短；
+三个人开发；
+WebSocket、JWT、Redis都在一个服务里更容易调试；
+后面如果做大，再拆微服务也很容易。
+
+下面是我认为最合理的一套结构。
+
+一、整体目录结构
+
+整个仓库：
+
+MaiSiZhe/
+├── docs/                     # 项目文档
+├── sql/                      # 建库脚本
+├── deploy/                   # Docker部署文件
+├── backend/                  # SpringBoot后端
+├── frontend/                 # Vue前端
+└── README.md
+二、后端结构设计（重点）
+
+后端：
+
+backend/
+│
+├── src/main/java/com/maisizhe
+│
+├── common/
+├── config/
+├── security/
+├── websocket/
+├── ai/
+├── modules/
+├── infrastructure/
+├── scheduler/
+├── listener/
+└── MaiSiZheApplication.java
+
+这是典型的：
+
+DDD-lite（轻量领域驱动）
+
+结构。
+
+三、common（公共模块）
+
+所有人都会依赖。
+
+common/
+├── constants/
+├── enums/
+├── exception/
+├── response/
+├── utils/
+└── annotation/
+constants
+
+放：
+
+RedisKeyConstants
+SecurityConstants
+MessageConstants
+AIConstants
+
+例如：
+
+public static final String ONLINE_USER="online:user:";
+enums
+
+放：
+
+RoleEnum
+GroupTypeEnum
+MessageTypeEnum
+MemberRoleEnum
+
+例如：
+
+TEXT,
+IMAGE,
+FILE,
+AI_ANSWER,
+AI_SUMMARY
+exception
+BusinessException
+UnauthorizedException
+GroupPermissionException
+response
+
+统一返回：
+
+Result<T>
+PageResult<T>
+
+统一格式：
+
+{
+    "code":200,
+    "message":"success",
+    "data":{}
+}
+annotation
+
+自定义注解：
+
+@GroupPermission
+@OperationLog
+四、config（配置层）
+config/
+├── RedisConfig
+├── WebSocketConfig
+├── SecurityConfig
+├── SwaggerConfig
+├── JacksonConfig
+├── AsyncConfig
+├── ThreadPoolConfig
+└── MybatisPlusConfig
+
+负责：
+
+所有Bean初始化。
+
+五、security（认证授权）
+
+单独抽出来。
+
+security/
+├── jwt/
+├── filter/
+├── handler/
+├── permission/
+└── context/
+jwt
+JwtUtil
+JwtProperties
+filter
+JwtAuthenticationFilter
+handler
+AuthenticationEntryPoint
+AccessDeniedHandler
+permission
+
+权限校验：
+
+GroupPermissionAspect
+AdminPermissionAspect
+context
+
+保存当前用户：
+
+UserContextHolder
+
+本质：
+
+ThreadLocal。
+
+六、modules（核心业务）
+
+这是最重要的。
+
+按业务拆。
+
+modules/
+├── user/
+├── friend/
+├── group/
+├── message/
+├── ai/
+├── admin/
+├── file/
+└── search/
+七、user模块
+user/
+├── controller/
+├── service/
+├── mapper/
+├── entity/
+├── dto/
+├── vo/
+└── convert/
+
+例如：
+
+UserController
+UserService
+UserMapper
+
+User
+LoginDTO
+RegisterDTO
+
+UserVO
+
+DTO：
+
+请求对象：
+
+LoginDTO
+
+VO：
+
+返回对象：
+
+UserVO
+
+Entity：
+
+数据库对象：
+
+User
+八、friend模块
+friend/
+├── controller/
+├── service/
+├── mapper/
+├── entity/
+├── dto/
+├── vo/
+└── event/
+
+事件：
+
+FriendAddedEvent
+
+以后扩展通知。
+
+九、group模块
+
+建议再拆。
+
+因为最复杂。
+
+group/
+├── controller/
+├── service/
+├── mapper/
+├── entity/
+├── dto/
+├── vo/
+├── strategy/
+├── factory/
+└── permission/
+strategy
+
+这是亮点。
+
+群创建策略：
+
+NormalGroupStrategy
+ClassGroupStrategy
+CourseGroupStrategy
+
+接口：
+
+GroupCreateStrategy
+
+创建：
+
+strategy.create(dto);
+
+避免：
+
+if(type==1)
+else if(type==2)
+else...
+
+地狱。
+
+factory
+GroupStrategyFactory
+
+自动获取策略。
+
+十、message模块（最复杂）
+
+建议这样。
+
+message/
+├── controller/
+├── service/
+├── mapper/
+├── entity/
+├── dto/
+├── vo/
+├── cache/
+├── route/
+├── parser/
+├── sender/
+└── strategy/
+sender
+
+消息发送器。
+
+接口：
+
+MessageSender
+
+实现：
+
+PrivateMessageSender
+GroupMessageSender
+
+负责：
+
+推送。
+
+strategy
+
+消息策略。
+
+支持：
+
+TextMessageStrategy
+ImageMessageStrategy
+FileMessageStrategy
+AIMessageStrategy
+
+未来加：
+
+VoiceMessageStrategy
+
+不用改代码。
+
+parser
+
+解析器。
+
+例如：
+
+MentionParser
+
+解析：
+
+@张三
+@AI
+cache
+
+Redis缓存。
+
+MessageCacheManager
+UnreadCacheManager
+route
+
+消息分表。
+
+MessageTableRouter
+
+例如：
+
+message_202606
+
+自动计算。
+
+十一、AI模块
+
+AI一定单独抽。
+
+不要塞message。
+
+ai/
+├── controller/
+├── service/
+├── client/
+├── prompt/
+├── memory/
+├── workflow/
+├── parser/
+└── retry/
+client
+
+模型调用。
+
+DeepSeekClient
+QwenClient
+
+接口：
+
+LLMClient
+
+切模型不用改业务。
+
+prompt
+
+Prompt模板。
+
+GroupPromptBuilder
+SummaryPromptBuilder
+workflow
+
+Agent工作流。
+
+例如：
+
+AtAIWorkflow
+DailySummaryWorkflow
+KeywordAlertWorkflow
+
+非常像LangChain。
+
+memory
+
+上下文。
+
+ConversationMemory
+
+负责：
+
+最近5轮对话。
+
+十二、WebSocket模块
+
+单独抽。
+
+websocket/
+├── handler/
+├── interceptor/
+├── listener/
+├── session/
+├── dispatcher/
+└── protocol/
+session
+
+维护连接。
+
+UserSessionManager
+
+保存：
+
+uid → websocketSession
+dispatcher
+
+消息分发器。
+
+MessageDispatcher
+
+负责：
+
+私聊
+群聊
+AI
+
+路由。
+
+十三、infrastructure（基础设施）
+
+所有第三方。
+
+infrastructure/
+├── redis/
+├── oss/
+├── id/
+├── event/
+├── search/
+└── monitor/
+redis
+RedisUtil
+id
+
+雪花算法：
+
+SnowflakeIdGenerator
+oss
+
+文件上传。
+
+OSSClient
+LocalStorageClient
+
+接口：
+
+FileStorage
+十四、scheduler（定时任务）
+scheduler/
+├── DailySummaryJob
+├── OnlineCleanupJob
+├── RetryFailedAIJob
+└── SyncClassMemberJob
+
+例如：
+
+每天21点：
+
+DailySummaryJob
+
+生成群日报。
+
+十五、listener（事件监听）
+
+利用Spring Event。
+
+listener/
+├── MessageSavedListener
+├── ClassChangedListener
+├── FriendAddedListener
+└── KeywordAlertListener
+
+实现：
+
+发送消息
+↓
+保存成功
+↓
+发布事件
+↓
+提醒用户
+
+解耦。
+
+十六、前端结构设计
+
+Vue部分建议：
+
+frontend/
+│
+├── src/
+│
+├── api/
+├── views/
+├── components/
+├── stores/
+├── router/
+├── hooks/
+├── websocket/
+├── utils/
+├── types/
+├── assets/
+└── layouts/
+views
+
+页面：
+
+Login
+Register
+Chat
+Contacts
+Groups
+AIAssistant
+Admin
+components
+
+组件：
+
+ChatBubble
+MessageInput
+GroupMemberList
+AICard
+MarkdownRenderer
+UnreadDivider
+stores
+
+Pinia：
+
+userStore
+chatStore
+groupStore
+friendStore
+aiStore
+websocket
+
+前端最关键。
+
+WebSocketManager
+HeartbeatManager
+ReconnectManager
+MessageQueue
+
+负责：
+
+心跳
+自动重连
+消息排序
+发送队列
+十七、最终架构图
+
+整个项目最终会变成：
+
+MaiSiZhe
+│
+├─frontend(Vue3)
+│
+├─backend(SpringBoot)
+│   ├─common
+│   ├─config
+│   ├─security
+│   ├─websocket
+│   ├─modules
+│   │   ├─user
+│   │   ├─friend
+│   │   ├─group
+│   │   ├─message
+│   │   ├─ai
+│   │   ├─file
+│   │   └─admin
+│   ├─infrastructure
+│   ├─scheduler
+│   └─listener
+│
+├─sql
+├─deploy
+└─docs
+
+如果按照这个结构开发，它最大的优点是：
+
+业务边界清晰、三个人可以并行开发、后续能平滑升级成微服务。
+
+甚至以后如果你去面试，说一句：
+
+“我们采用的是基于 DDD-lite 的模块化单体架构，将 WebSocket、AI Workflow、消息系统、权限体系分别解耦，后续可按模块拆分为独立服务。”
+
+面试官基本就会觉得：这不像普通课程设计，而更像一个真正上线系统的设计。
