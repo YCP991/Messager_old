@@ -194,4 +194,42 @@ public class WebSocketHandler {
             }
         }
     }
+    
+    /**
+     * 发送消息给指定用户
+     * 
+     * @param userId 用户ID
+     * @param message 消息对象
+     */
+    public void sendMessageToUser(Long userId, WSMessage message) {
+        Session session = sessionManager.getSession(userId);
+        if (session != null && session.isOpen()) {
+            try {
+                String jsonMessage = objectMapper.writeValueAsString(message);
+                sendTextMessage(session, jsonMessage);
+                log.debug("消息推送成功: userId={}", userId);
+            } catch (Exception e) {
+                log.error("消息推送失败: userId={}", userId, e);
+            }
+        } else {
+            log.debug("用户不在线: userId={}", userId);
+        }
+    }
+    
+    /**
+     * 广播消息给所有在线用户
+     * 
+     * @param message 消息对象
+     */
+    public void broadcastMessage(WSMessage message) {
+        try {
+            String jsonMessage = objectMapper.writeValueAsString(message);
+            sessionManager.getAllSessions().forEach((userId, session) -> {
+                sendTextMessage(session, jsonMessage);
+            });
+            log.debug("广播消息成功: 在线人数={}", sessionManager.getOnlineCount());
+        } catch (Exception e) {
+            log.error("广播消息失败", e);
+        }
+    }
 }
