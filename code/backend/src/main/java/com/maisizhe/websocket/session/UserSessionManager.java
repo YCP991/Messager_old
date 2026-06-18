@@ -5,7 +5,7 @@ import org.springframework.stereotype.Component;
 
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-import javax.websocket.Session;
+import jakarta.websocket.Session;
 
 /**
  * 用户会话管理器

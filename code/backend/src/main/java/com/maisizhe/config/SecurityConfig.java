@@ -64,7 +64,7 @@ public class SecurityConfig {
                 .accessDeniedHandler(accessDeniedHandler))
             
             // 配置请求授权
-            .authorizeHttpRequest(auth -> auth
+            .authorizeHttpRequests(auth -> auth
                 // 放行认证接口
                 .requestMatchers("/api/auth/**").permitAll()
                 
