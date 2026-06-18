@@ -60,3 +60,31 @@ export function getUserInfo(userId: number): Promise<UserInfo> {
 export function updateProfile(userId: number, data: UserInfo): Promise<void> {
   return request.put(`/auth/user/${userId}`, data);
 }
+
+/**
+ * 获取群组列表
+ */
+export interface GroupInfo {
+  id: number;
+  groupName: string;
+  groupAvatar: string;
+  groupType: number;
+  memberCount: number;
+  myRole?: number;
+}
+
+export function getUserGroups(userId: number): Promise<GroupInfo[]> {
+  return request.get('/group/my-groups', { params: { userId } });
+}
+
+/**
+ * 获取群聊历史消息
+ */
+export interface MessageParams {
+  groupId: number;
+  limit?: number;
+}
+
+export function getGroupHistory(params: MessageParams): Promise<any[]> {
+  return request.get('/message/group/history', { params });
+}
