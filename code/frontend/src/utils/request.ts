@@ -1,5 +1,4 @@
 import axios, { AxiosInstance, AxiosRequestConfig, AxiosResponse } from 'axios';
-import { useMessage } from 'naive-ui';
 
 // API响应类型
 export interface ApiResponse<T = any> {
@@ -47,37 +46,35 @@ request.interceptors.response.use(
       window.location.href = '/login';
       return Promise.reject(new Error(message));
     } else {
-      // 显示错误消息
-      const messageApi = useMessage();
-      messageApi.error(message || '请求失败');
+      // 显示错误消息（使用console代替naive-ui的message）
+      console.error('API错误:', message || '请求失败');
       return Promise.reject(new Error(message));
     }
   },
   (error) => {
     console.error('响应错误:', error);
     
-    const messageApi = useMessage();
     if (error.response) {
       switch (error.response.status) {
         case 401:
-          messageApi.error('未授权，请重新登录');
+          console.error('未授权，请重新登录');
           localStorage.removeItem('token');
           window.location.href = '/login';
           break;
         case 403:
-          messageApi.error('权限不足');
+          console.error('权限不足');
           break;
         case 404:
-          messageApi.error('请求的资源不存在');
+          console.error('请求的资源不存在');
           break;
         case 500:
-          messageApi.error('服务器错误');
+          console.error('服务器错误');
           break;
         default:
-          messageApi.error(error.message || '网络错误');
+          console.error(error.message || '网络错误');
       }
     } else {
-      messageApi.error('网络连接失败');
+      console.error('网络连接失败');
     }
     
     return Promise.reject(error);

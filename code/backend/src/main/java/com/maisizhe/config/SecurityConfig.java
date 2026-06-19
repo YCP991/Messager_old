@@ -90,8 +90,8 @@ public class SecurityConfig {
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
         
-        // 允许的源
-        configuration.setAllowedOrigins(Arrays.asList("*"));
+        // 允许的源（开发环境允许所有源）
+        configuration.setAllowedOriginPatterns(Arrays.asList("*"));
         
         // 允许的方法
         configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS"));

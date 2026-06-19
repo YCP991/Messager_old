@@ -43,7 +43,8 @@ class WebSocketManager {
     return new Promise((resolve, reject) => {
       try {
         console.log('正在连接WebSocket...');
-        this.ws = new WebSocket(`${this.url}?token=${this.token}`);
+        // 使用路径参数方式传递token
+        this.ws = new WebSocket(`${this.url}/${this.token}`);
 
         this.ws.onopen = () => {
           console.log('WebSocket连接成功');
