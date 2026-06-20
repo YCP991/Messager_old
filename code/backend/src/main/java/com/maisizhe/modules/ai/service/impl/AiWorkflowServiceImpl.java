@@ -5,8 +5,8 @@ import com.maisizhe.modules.ai.service.AiService;
 import com.maisizhe.modules.ai.service.AiWorkflowService;
 import com.maisizhe.modules.message.dto.SendMessageDTO;
 import com.maisizhe.modules.message.service.MessageService;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 
 import java.util.concurrent.Executor;
@@ -19,12 +19,19 @@ import java.util.concurrent.Executor;
  */
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class AiWorkflowServiceImpl implements AiWorkflowService {
     
     private final MessageService messageService;
     private final AiService aiService;
     private final Executor aiTaskExecutor;
+    
+    public AiWorkflowServiceImpl(@Lazy MessageService messageService, 
+                                  AiService aiService,
+                                  Executor aiTaskExecutor) {
+        this.messageService = messageService;
+        this.aiService = aiService;
+        this.aiTaskExecutor = aiTaskExecutor;
+    }
     
     /**
      * 处理@AI消息

@@ -5,8 +5,9 @@ import com.maisizhe.modules.ai.service.AiWorkflowService;
 import com.maisizhe.security.jwt.JwtUtil;
 import com.maisizhe.websocket.message.WSMessage;
 import com.maisizhe.websocket.session.UserSessionManager;
-import lombok.RequiredArgsConstructor;
+import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import jakarta.websocket.*;
@@ -25,12 +26,19 @@ import java.util.concurrent.ConcurrentHashMap;
 @Slf4j
 @Component
 @ServerEndpoint("/ws/{token}")
-@RequiredArgsConstructor
 public class WebSocketHandler {
     
-    private final UserSessionManager sessionManager;
-    private final JwtUtil jwtUtil;
-    private final AiWorkflowService aiWorkflowService;
+    // 注意: WebSocket端点不能使用@RequiredArgsConstructor，必须有无参构造函数
+    // 使用@Autowired注入依赖
+    @Autowired
+    private UserSessionManager sessionManager;
+    
+    @Autowired
+    private JwtUtil jwtUtil;
+    
+    @Autowired
+    private AiWorkflowService aiWorkflowService;
+    
     private final ObjectMapper objectMapper = new ObjectMapper();
     
     /**

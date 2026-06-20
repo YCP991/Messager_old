@@ -1,0 +1,10 @@
+C:\Users\Champion Young\Desktop\课设\Messager\code\backend\src\test\java\com\maisizhe\MessagerApplicationTests.java
+C:\Users\Champion Young\Desktop\课设\Messager\code\backend\src\test\java\com\maisizhe\common\enums\RoleEnumTest.java
+C:\Users\Champion Young\Desktop\课设\Messager\code\backend\src\test\java\com\maisizhe\modules\message\service\MessageServiceTest.java
+C:\Users\Champion Young\Desktop\课设\Messager\code\backend\src\test\java\com\maisizhe\util\RedisUtilTest.java
+C:\Users\Champion Young\Desktop\课设\Messager\code\backend\src\test\java\com\maisizhe\modules\group\service\GroupServiceTest.java
+C:\Users\Champion Young\Desktop\课设\Messager\code\backend\src\test\java\com\maisizhe\security\jwt\JwtUtilTest.java
+C:\Users\Champion Young\Desktop\课设\Messager\code\backend\src\test\java\com\maisizhe\common\response\ResultTest.java
+C:\Users\Champion Young\Desktop\课设\Messager\code\backend\src\test\java\com\maisizhe\modules\ai\service\AiServiceTest.java
+C:\Users\Champion Young\Desktop\课设\Messager\code\backend\src\test\java\com\maisizhe\modules\auth\dto\LoginDTOTest.java
+C:\Users\Champion Young\Desktop\课设\Messager\code\backend\src\test\java\com\maisizhe\websocket\message\WSMessageTest.java

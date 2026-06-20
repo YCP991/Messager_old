@@ -1,0 +1,10 @@
+com\maisizhe\modules\auth\dto\LoginDTOTest.class
+com\maisizhe\common\enums\RoleEnumTest.class
+com\maisizhe\common\response\ResultTest.class
+com\maisizhe\modules\ai\service\AiServiceTest.class
+com\maisizhe\modules\message\service\MessageServiceTest.class
+com\maisizhe\modules\group\service\GroupServiceTest.class
+com\maisizhe\websocket\message\WSMessageTest.class
+com\maisizhe\MessagerApplicationTests.class
+com\maisizhe\security\jwt\JwtUtilTest.class
+com\maisizhe\util\RedisUtilTest.class

@@ -13,7 +13,7 @@ import java.time.LocalDateTime;
  * @author MaiSiZhe Team
  */
 @Data
-@TableName("im_group_member")
+@TableName("group_member")
 public class GroupMember {
     
     /**

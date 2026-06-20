@@ -10,23 +10,24 @@
     "lint": "eslint . --ext .vue,.js,.jsx,.cjs,.mjs,.ts,.tsx,.cts,.mts --fix"
   },
   "dependencies": {
-    "vue": "^3.4.21",
-    "vue-router": "^4.3.0",
-    "pinia": "^2.1.7",
+    "@vicons/ionicons5": "^0.13.0",
     "axios": "^1.6.7",
-    "naive-ui": "^2.38.1",
-    "vfonts": "^0.0.3",
+    "dayjs": "^1.11.10",
     "markdown-it": "^14.0.0",
-    "dayjs": "^1.11.10"
+    "naive-ui": "^2.38.1",
+    "pinia": "^2.1.7",
+    "vfonts": "^0.0.3",
+    "vue": "^3.4.21",
+    "vue-router": "^4.3.0"
   },
   "devDependencies": {
+    "@types/markdown-it": "^13.0.7",
+    "@types/node": "^20.11.24",
     "@vitejs/plugin-vue": "^5.0.4",
     "typescript": "^5.4.2",
-    "vue-tsc": "^2.0.6",
-    "vite": "^5.1.5",
-    "@types/node": "^20.11.24",
-    "@types/markdown-it": "^13.0.7",
+    "unplugin-auto-import": "^0.17.5",
     "unplugin-vue-components": "^0.26.0",
-    "unplugin-auto-import": "^0.17.5"
+    "vite": "^5.1.5",
+    "vue-tsc": "^2.0.6"
   }
 }
