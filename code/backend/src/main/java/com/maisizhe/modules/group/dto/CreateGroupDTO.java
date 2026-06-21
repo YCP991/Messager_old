@@ -30,6 +30,16 @@ public class CreateGroupDTO {
     private Integer groupType;
     
     /**
+     * 群组描述
+     */
+    private String description;
+    
+    /**
+     * 群组公告
+     */
+    private String announcement;
+    
+    /**
      * 班级号(班级群/课程群必填)
      */
     private String classNo;
@@ -43,9 +53,4 @@ public class CreateGroupDTO {
      * 最大成员数(0表示无限制)
      */
     private Integer maxMembers = 0;
-    
-    /**
-     * 是否允许成员邀请:0-否,1-是
-     */
-    private Integer allowInvite = 1;
 }

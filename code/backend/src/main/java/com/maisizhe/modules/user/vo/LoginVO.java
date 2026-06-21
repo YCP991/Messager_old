@@ -53,6 +53,6 @@ public class LoginVO {
         /**
          * 班级号
          */
-        private String className;
+        private String classNo;
     }
 }

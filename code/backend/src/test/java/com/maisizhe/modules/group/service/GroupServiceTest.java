@@ -76,13 +76,13 @@ class GroupServiceTest {
         member.setUserId(1001L);
         member.setRole(MemberRoleEnum.MEMBER.getCode());
         member.setJoinTime(LocalDateTime.now());
-        member.setIsQuit(0);
+        member.setQuitTime(null); // 未退群
         
         // Then
         assertEquals(2001L, member.getGroupId());
         assertEquals(1001L, member.getUserId());
         assertEquals(MemberRoleEnum.MEMBER.getCode(), member.getRole());
-        assertEquals(0, member.getIsQuit());
+        assertNull(member.getQuitTime()); // 未退群时quitTime为null
         assertNotNull(member.getJoinTime());
     }
     

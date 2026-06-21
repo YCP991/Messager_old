@@ -80,4 +80,75 @@ public interface GroupService {
      * @param operatorId 操作用户ID
      */
     void updateAnnouncement(Long groupId, String announcement, Long operatorId);
+    
+    /**
+     * 解散群组（仅群主可操作）
+     * 
+     * @param groupId 群组ID
+     * @param operatorId 操作用户ID（必须是群主）
+     */
+    void disbandGroup(Long groupId, Long operatorId);
+    
+    /**
+     * 转让群主身份
+     * 
+     * @param groupId 群组ID
+     * @param fromUid 当前群主ID
+     * @param toUid 新群主ID
+     */
+    void transferOwnership(Long groupId, Long fromUid, Long toUid);
+    
+    /**
+     * 禁言成员
+     * 
+     * @param groupId 群组ID
+     * @param targetUserId 目标用户ID
+     * @param muteMinutes 禁言时长（分钟），-1表示永久禁言
+     * @param operatorId 操作用户ID（管理员或群主）
+     */
+    void muteMember(Long groupId, Long targetUserId, int muteMinutes, Long operatorId);
+    
+    /**
+     * 解除禁言
+     * 
+     * @param groupId 群组ID
+     * @param targetUserId 目标用户ID
+     * @param operatorId 操作用户ID（管理员或群主）
+     */
+    void unmuteMember(Long groupId, Long targetUserId, Long operatorId);
+    
+    /**
+     * 获取群组成员ID列表（用于消息推送）
+     * 
+     * @param groupId 群组ID
+     * @return 成员ID列表
+     */
+    List<Long> getGroupMemberIds(Long groupId);
+    
+    /**
+     * 检查用户是否被禁言
+     * 
+     * @param groupId 群组ID
+     * @param userId 用户ID
+     * @return true-被禁言，false-未被禁言
+     */
+    boolean isMemberMuted(Long groupId, Long userId);
+    
+    /**
+     * 邀请用户加入群组（管理员或群主）
+     * 
+     * @param groupId 群组ID
+     * @param targetUserId 目标用户ID
+     * @param operatorId 操作用户ID（管理员或群主）
+     */
+    void inviteMember(Long groupId, Long targetUserId, Long operatorId);
+    
+    /**
+     * 批量邀请用户加入群组
+     * 
+     * @param groupId 群组ID
+     * @param userIds 用户ID列表
+     * @param operatorId 操作用户ID（管理员或群主）
+     */
+    void inviteMembers(Long groupId, List<Long> userIds, Long operatorId);
 }

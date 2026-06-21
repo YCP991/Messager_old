@@ -8,6 +8,8 @@ export interface WSMessage {
   timestamp?: number;
 }
 
+import logger from './logger';
+
 /**
  * WebSocket管理器
  * 负责连接管理、自动重连、心跳保活、消息队列
@@ -24,6 +26,7 @@ class WebSocketManager {
   private heartbeatTimer: number | null = null;
   private messageQueue: WSMessage[] = [];
   private isConnected: boolean = false;
+  private connectionStartTime: number = 0;
   
   // 事件回调
   private onConnectedCallback: (() => void) | null = null;
@@ -34,6 +37,7 @@ class WebSocketManager {
   constructor(url: string, token: string) {
     this.url = url;
     this.token = token;
+    logger.info('WebSocket管理器初始化', { url });
   }
 
   /**
@@ -42,12 +46,16 @@ class WebSocketManager {
   connect(): Promise<void> {
     return new Promise((resolve, reject) => {
       try {
-        console.log('正在连接WebSocket...');
+        this.connectionStartTime = Date.now();
+        logger.info('开始连接WebSocket...');
+        
         // 使用路径参数方式传递token
         this.ws = new WebSocket(`${this.url}/${this.token}`);
 
         this.ws.onopen = () => {
-          console.log('WebSocket连接成功');
+          const connectionTime = Date.now() - this.connectionStartTime;
+          logger.info(`WebSocket连接成功 (${connectionTime}ms)`);
+          
           this.isConnected = true;
           this.reconnectCount = 0;
           this.startHeartbeat();
@@ -62,18 +70,26 @@ class WebSocketManager {
         this.ws.onmessage = (event) => {
           try {
             const message: WSMessage = JSON.parse(event.data);
-            console.log('收到消息:', message);
+            
+            // 心跳响应使用debug级别，其他消息使用info级别
+            if (message.type === 'HEARTBEAT') {
+              logger.debug('收到心跳响应:', message);
+            } else {
+              logger.info('收到消息:', message);
+            }
             
             if (this.onMessageCallback) {
               this.onMessageCallback(message);
             }
           } catch (error) {
-            console.error('解析消息失败:', error);
+            logger.error('解析消息失败:', error, '原始数据:', event.data);
           }
         };
 
-        this.ws.onclose = () => {
-          console.log('WebSocket连接关闭');
+        this.ws.onclose = (event) => {
+          const { code, reason, wasClean } = event;
+          logger.warn(`WebSocket连接关闭 [code=${code}, reason=${reason}, clean=${wasClean}]`);
+          
           this.isConnected = false;
           this.stopHeartbeat();
           
@@ -81,11 +97,14 @@ class WebSocketManager {
             this.onDisconnectedCallback();
           }
           
-          this.attemptReconnect();
+          // 非正常关闭才重连
+          if (!wasClean && code !== 1000) {
+            this.attemptReconnect();
+          }
         };
 
         this.ws.onerror = (error) => {
-          console.error('WebSocket错误:', error);
+          logger.error('WebSocket错误:', error);
           
           if (this.onErrorCallback) {
             this.onErrorCallback(error);
@@ -94,7 +113,7 @@ class WebSocketManager {
         };
 
       } catch (error) {
-        console.error('创建WebSocket连接失败:', error);
+        logger.error('创建WebSocket连接失败:', error);
         reject(error);
       }
     });
@@ -114,9 +133,18 @@ class WebSocketManager {
 
     if (this.isConnected && this.ws?.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(message));
-      console.log('发送消息:', message);
+      
+      // 心跳消息使用debug级别
+      if (message.type === 'HEARTBEAT') {
+        logger.debug('发送心跳');
+      } else {
+        logger.info('发送消息:', message);
+      }
     } else {
-      console.warn('WebSocket未连接，消息已加入队列');
+      logger.warn('WebSocket未连接，消息已加入队列', { 
+        queueLength: this.messageQueue.length,
+        message 
+      });
       this.messageQueue.push(message);
     }
   }
@@ -125,11 +153,13 @@ class WebSocketManager {
    * 断开连接
    */
   disconnect(): void {
+    logger.info('主动断开WebSocket连接');
+    
     this.stopHeartbeat();
     this.clearReconnectTimer();
     
     if (this.ws) {
-      this.ws.close();
+      this.ws.close(1000, 'Client disconnect'); // 正常关闭
       this.ws = null;
     }
     
@@ -142,19 +172,20 @@ class WebSocketManager {
    */
   private attemptReconnect(): void {
     if (this.reconnectCount >= this.maxReconnectCount) {
-      console.error('达到最大重连次数，停止重连');
+      logger.error(`达到最大重连次数(${this.maxReconnectCount})，停止重连`);
       return;
     }
 
     this.clearReconnectTimer();
     
     const delay = this.reconnectDelay * Math.pow(2, this.reconnectCount); // 指数退避
-    console.log(`${delay / 1000}秒后尝试第${this.reconnectCount + 1}次重连...`);
+    logger.warn(`${delay / 1000}秒后尝试第${this.reconnectCount + 1}次重连...`);
     
     this.reconnectTimer = window.setTimeout(() => {
       this.reconnectCount++;
+      logger.info(`开始第${this.reconnectCount}次重连`);
       this.connect().catch(err => {
-        console.error('重连失败:', err);
+        logger.error(`第${this.reconnectCount}次重连失败:`, err);
       });
     }, delay);
   }
@@ -165,9 +196,10 @@ class WebSocketManager {
   private startHeartbeat(): void {
     this.stopHeartbeat();
     
+    logger.debug('启动心跳定时器 (间隔: 30秒)');
+    
     this.heartbeatTimer = window.setInterval(() => {
       this.send({ type: 'HEARTBEAT' });
-      console.debug('发送心跳');
     }, this.heartbeatInterval);
   }
 
@@ -178,6 +210,7 @@ class WebSocketManager {
     if (this.heartbeatTimer) {
       clearInterval(this.heartbeatTimer);
       this.heartbeatTimer = null;
+      logger.debug('停止心跳定时器');
     }
   }
 
@@ -195,11 +228,17 @@ class WebSocketManager {
    * 刷新消息队列
    */
   private flushMessageQueue(): void {
-    while (this.messageQueue.length > 0) {
-      const message = this.messageQueue.shift();
-      if (message && this.ws) {
-        this.ws.send(JSON.stringify(message));
-        console.log('发送队列消息:', message);
+    const queueLength = this.messageQueue.length;
+    
+    if (queueLength > 0) {
+      logger.info(`发送队列中的${queueLength}条消息`);
+      
+      while (this.messageQueue.length > 0) {
+        const message = this.messageQueue.shift();
+        if (message && this.ws) {
+          this.ws.send(JSON.stringify(message));
+          logger.debug('发送队列消息:', message);
+        }
       }
     }
   }
@@ -209,6 +248,13 @@ class WebSocketManager {
    */
   getConnectStatus(): boolean {
     return this.isConnected;
+  }
+
+  /**
+   * 获取重连次数
+   */
+  getReconnectCount(): number {
+    return this.reconnectCount;
   }
 
   /**

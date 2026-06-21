@@ -48,6 +48,21 @@ public class GroupMemberVO {
     private String roleDesc;
     
     /**
+     * 群昵称
+     */
+    private String groupNickname;
+    
+    /**
+     * 邀请人ID
+     */
+    private Long inviterId;
+    
+    /**
+     * 邀请人姓名
+     */
+    private String inviterName;
+    
+    /**
      * 入群时间
      */
     private LocalDateTime joinTime;
@@ -56,4 +71,19 @@ public class GroupMemberVO {
      * 是否在线
      */
     private Boolean isOnline;
+    
+    /**
+     * 是否被禁言
+     */
+    private Boolean isMuted;
+    
+    /**
+     * 禁言截止时间
+     */
+    private LocalDateTime muteUntil;
+    
+    /**
+     * 是否设置了免打扰
+     */
+    private Boolean isSelfMuted;
 }

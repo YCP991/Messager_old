@@ -62,7 +62,7 @@ const formData = ref({
 });
 
 // 自定义验证规则：确认密码
-const validatePasswordSame = (rule: any, value: string) => {
+const validatePasswordSame = (_rule: any, value: string) => {
   return value === formData.value.password;
 };
 

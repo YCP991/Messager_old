@@ -130,6 +130,24 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   /**
+   * 移除消息（用于撤回）
+   */
+  function removeMessage(messageId: number) {
+    for (const [chatId, chatMessages] of messages.value.entries()) {
+      const index = chatMessages.findIndex(m => m.id === messageId);
+      if (index !== -1) {
+        chatMessages.splice(index, 1);
+        // 更新会话最后一条消息
+        const lastMessage = chatMessages[chatMessages.length - 1];
+        if (lastMessage) {
+          updateSessionLastMessage(chatId, lastMessage);
+        }
+        break;
+      }
+    }
+  }
+
+  /**
    * 二分法查找插入位置
    */
   function findInsertIndex(messages: Message[], seqId: number): number {
@@ -172,6 +190,7 @@ export const useChatStore = defineStore('chat', () => {
     addOrUpdateSession,
     setWebSocketStatus,
     incrementUnreadCount,
-    clear
+    clear,
+    removeMessage
   };
 });

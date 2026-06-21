@@ -51,7 +51,13 @@ public class GroupServiceImpl implements GroupService {
         
         // 2. 创建群组
         Group group = new Group();
-        BeanUtils.copyProperties(dto, group);
+        // 手动设置属性，避免 BeanUtils.copyProperties 无法处理字段名不一致的问题
+        group.setGroupName(dto.getGroupName());
+        group.setGroupAvatar(dto.getGroupAvatar());
+        group.setGroupType(dto.getGroupType());
+        group.setClassNo(dto.getClassNo());
+        group.setCourseId(dto.getCourseCode() != null ? Long.parseLong(dto.getCourseCode()) : null);
+        group.setMaxMembers(dto.getMaxMembers() != null ? dto.getMaxMembers() : 500);
         group.setCreatorId(creatorId);
         group.setMemberCount(1); // 创建者自己
         group.setCreateTime(LocalDateTime.now());
@@ -64,7 +70,7 @@ public class GroupServiceImpl implements GroupService {
         member.setUserId(creatorId);
         member.setRole(MemberRoleEnum.OWNER.getCode());
         member.setJoinTime(LocalDateTime.now());
-        member.setIsQuit(0);
+        member.setQuitTime(null); // 未退群
         groupMemberMapper.insert(member);
         
         log.info("创建群组成功: groupId={}, groupName={}, creatorId={}", 
@@ -98,8 +104,8 @@ public class GroupServiceImpl implements GroupService {
         // 1. 查询用户加入的所有群组ID
         List<Long> groupIds = groupMemberMapper.selectList(
             new LambdaQueryWrapper<GroupMember>()
-                .eq(GroupMember::getUserId, userId)
-                .eq(GroupMember::getIsQuit, 0)
+                .eq(GroupMember::getUserId, userId) // 查询该用户的群组
+                .isNull(GroupMember::getQuitTime) // quitTime为null表示未退群
         ).stream().map(GroupMember::getGroupId).collect(Collectors.toList());
         
         if (groupIds.isEmpty()) {
@@ -138,11 +144,11 @@ public class GroupServiceImpl implements GroupService {
         );
         
         if (existingMember != null) {
-            if (existingMember.getIsQuit() == 0) {
+            if (existingMember.getQuitTime() == null) {
                 throw new BusinessException("已是群成员");
             }
             // 重新激活
-            existingMember.setIsQuit(0);
+            existingMember.setQuitTime(null);
             existingMember.setJoinTime(LocalDateTime.now());
             groupMemberMapper.updateById(existingMember);
         } else {
@@ -152,7 +158,7 @@ public class GroupServiceImpl implements GroupService {
             member.setUserId(userId);
             member.setRole(MemberRoleEnum.MEMBER.getCode());
             member.setJoinTime(LocalDateTime.now());
-            member.setIsQuit(0);
+            member.setQuitTime(null); // 未退群
             groupMemberMapper.insert(member);
         }
         
@@ -177,7 +183,7 @@ public class GroupServiceImpl implements GroupService {
                 .eq(GroupMember::getUserId, userId)
         );
         
-        if (member == null || member.getIsQuit() == 1) {
+        if (member == null || member.getQuitTime() != null) {
             throw new BusinessException("不是群成员");
         }
         
@@ -187,7 +193,6 @@ public class GroupServiceImpl implements GroupService {
         }
         
         // 3. 标记为已退群
-        member.setIsQuit(1);
         member.setQuitTime(LocalDateTime.now());
         groupMemberMapper.updateById(member);
         
@@ -207,11 +212,11 @@ public class GroupServiceImpl implements GroupService {
      */
     @Override
     public List<GroupMemberVO> getGroupMembers(Long groupId) {
-        // 1. 查询所有成员
+        // 1. 查询群成员列表
         List<GroupMember> members = groupMemberMapper.selectList(
             new LambdaQueryWrapper<GroupMember>()
                 .eq(GroupMember::getGroupId, groupId)
-                .eq(GroupMember::getIsQuit, 0)
+                .isNull(GroupMember::getQuitTime) // quitTime为null表示未退群
                 .orderByAsc(GroupMember::getRole)
                 .orderByDesc(GroupMember::getJoinTime)
         );
@@ -239,7 +244,7 @@ public class GroupServiceImpl implements GroupService {
                 .eq(GroupMember::getUserId, targetUserId)
         );
         
-        if (targetMember == null || targetMember.getIsQuit() == 1) {
+        if (targetMember == null || targetMember.getQuitTime() != null) {
             throw new BusinessException("不是群成员");
         }
         
@@ -248,7 +253,6 @@ public class GroupServiceImpl implements GroupService {
         }
         
         // 3. 标记为已退群
-        targetMember.setIsQuit(1);
         targetMember.setQuitTime(LocalDateTime.now());
         groupMemberMapper.updateById(targetMember);
         
@@ -287,6 +291,287 @@ public class GroupServiceImpl implements GroupService {
     }
     
     /**
+     * 解散群组
+     */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void disbandGroup(Long groupId, Long operatorId) {
+        // 1. 查询群组
+        Group group = groupMapper.selectById(groupId);
+        if (group == null) {
+            throw new BusinessException("群组不存在");
+        }
+        
+        // 2. 检查群主权限
+        if (!group.getCreatorId().equals(operatorId)) {
+            throw new BusinessException("只有群主可以解散群组");
+        }
+        
+        // 3. 标记群组为已解散
+        group.setIsDisbanded(1);
+        group.setDisbandTime(LocalDateTime.now());
+        group.setUpdateTime(LocalDateTime.now());
+        groupMapper.updateById(group);
+        
+        log.info("解散群组: groupId={}, operatorId={}", groupId, operatorId);
+    }
+    
+    /**
+     * 转让群主身份
+     */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void transferOwnership(Long groupId, Long fromUid, Long toUid) {
+        // 1. 验证当前群主身份
+        GroupMember fromMember = groupMemberMapper.selectOne(
+            new LambdaQueryWrapper<GroupMember>()
+                .eq(GroupMember::getGroupId, groupId)
+                .eq(GroupMember::getUserId, fromUid)
+                .isNull(GroupMember::getQuitTime)
+        );
+        
+        if (fromMember == null) {
+            throw new BusinessException("您不是群成员");
+        }
+        
+        if (!fromMember.getRole().equals(MemberRoleEnum.OWNER.getCode())) {
+            throw new BusinessException("只有群主可以转让群主身份");
+        }
+        
+        // 2. 验证新群主是否是群成员
+        GroupMember toMember = groupMemberMapper.selectOne(
+            new LambdaQueryWrapper<GroupMember>()
+                .eq(GroupMember::getGroupId, groupId)
+                .eq(GroupMember::getUserId, toUid)
+                .isNull(GroupMember::getQuitTime)
+        );
+        
+        if (toMember == null) {
+            throw new BusinessException("被转让者不是群成员");
+        }
+        
+        // 3. 更新角色
+        fromMember.setRole(MemberRoleEnum.MEMBER.getCode());
+        groupMemberMapper.updateById(fromMember);
+        
+        toMember.setRole(MemberRoleEnum.OWNER.getCode());
+        groupMemberMapper.updateById(toMember);
+        
+        // 4. 更新群组的creatorId
+        Group group = groupMapper.selectById(groupId);
+        group.setCreatorId(toUid);
+        group.setUpdateTime(LocalDateTime.now());
+        groupMapper.updateById(group);
+        
+        log.info("转让群主身份: groupId={}, fromUid={}, toUid={}", groupId, fromUid, toUid);
+    }
+    
+    /**
+     * 禁言成员
+     */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void muteMember(Long groupId, Long targetUserId, int muteMinutes, Long operatorId) {
+        // 1. 检查操作者权限(管理员或群主)
+        checkPermission(groupId, operatorId, true);
+        
+        // 2. 不能禁言自己
+        if (targetUserId.equals(operatorId)) {
+            throw new BusinessException("不能禁言自己");
+        }
+        
+        // 3. 查询目标成员
+        GroupMember targetMember = groupMemberMapper.selectOne(
+            new LambdaQueryWrapper<GroupMember>()
+                .eq(GroupMember::getGroupId, groupId)
+                .eq(GroupMember::getUserId, targetUserId)
+                .isNull(GroupMember::getQuitTime)
+        );
+        
+        if (targetMember == null) {
+            throw new BusinessException("目标用户不是群成员");
+        }
+        
+        // 4. 不能禁言群主
+        if (targetMember.getRole().equals(MemberRoleEnum.OWNER.getCode())) {
+            throw new BusinessException("不能禁言群主");
+        }
+        
+        // 5. 设置禁言时间
+        LocalDateTime muteUntil;
+        if (muteMinutes < 0) {
+            // 永久禁言
+            muteUntil = LocalDateTime.now().plusYears(100);
+        } else {
+            muteUntil = LocalDateTime.now().plusMinutes(muteMinutes);
+        }
+        
+        targetMember.setMuteUntil(muteUntil);
+        groupMemberMapper.updateById(targetMember);
+        
+        log.info("禁言成员: groupId={}, targetUserId={}, muteMinutes={}, operatorId={}", 
+            groupId, targetUserId, muteMinutes, operatorId);
+    }
+    
+    /**
+     * 解除禁言
+     */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void unmuteMember(Long groupId, Long targetUserId, Long operatorId) {
+        // 1. 检查操作者权限(管理员或群主)
+        checkPermission(groupId, operatorId, true);
+        
+        // 2. 查询目标成员
+        GroupMember targetMember = groupMemberMapper.selectOne(
+            new LambdaQueryWrapper<GroupMember>()
+                .eq(GroupMember::getGroupId, groupId)
+                .eq(GroupMember::getUserId, targetUserId)
+                .isNull(GroupMember::getQuitTime)
+        );
+        
+        if (targetMember == null) {
+            throw new BusinessException("目标用户不是群成员");
+        }
+        
+        // 3. 解除禁言
+        targetMember.setMuteUntil(null);
+        groupMemberMapper.updateById(targetMember);
+        
+        log.info("解除禁言: groupId={}, targetUserId={}, operatorId={}", 
+            groupId, targetUserId, operatorId);
+    }
+    
+    /**
+     * 获取群组成员ID列表
+     */
+    @Override
+    public List<Long> getGroupMemberIds(Long groupId) {
+        List<GroupMember> members = groupMemberMapper.selectList(
+            new LambdaQueryWrapper<GroupMember>()
+                .eq(GroupMember::getGroupId, groupId)
+                .isNull(GroupMember::getQuitTime)
+        );
+        
+        return members.stream()
+            .map(GroupMember::getUserId)
+            .collect(Collectors.toList());
+    }
+    
+    /**
+     * 检查用户是否被禁言
+     */
+    @Override
+    public boolean isMemberMuted(Long groupId, Long userId) {
+        GroupMember member = groupMemberMapper.selectOne(
+            new LambdaQueryWrapper<GroupMember>()
+                .eq(GroupMember::getGroupId, groupId)
+                .eq(GroupMember::getUserId, userId)
+                .isNull(GroupMember::getQuitTime)
+        );
+        
+        if (member == null || member.getMuteUntil() == null) {
+            return false;
+        }
+        
+        return member.getMuteUntil().isAfter(LocalDateTime.now());
+    }
+    
+    /**
+     * 邀请用户加入群组
+     */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void inviteMember(Long groupId, Long targetUserId, Long operatorId) {
+        // 1. 检查操作者权限(管理员或群主)
+        checkPermission(groupId, operatorId, true);
+        
+        // 2. 检查目标用户是否已在群中
+        GroupMember existingMember = groupMemberMapper.selectOne(
+            new LambdaQueryWrapper<GroupMember>()
+                .eq(GroupMember::getGroupId, groupId)
+                .eq(GroupMember::getUserId, targetUserId)
+        );
+        
+        if (existingMember != null && existingMember.getQuitTime() == null) {
+            throw new BusinessException("用户已在群中");
+        }
+        
+        // 3. 创建群成员记录（直接加入，不需要验证）
+        GroupMember newMember = GroupMember.builder()
+            .groupId(groupId)
+            .userId(targetUserId)
+            .role(MemberRoleEnum.MEMBER.getCode())
+            .joinTime(LocalDateTime.now())
+            .build();
+        
+        groupMemberMapper.insert(newMember);
+        
+        // 4. 更新群成员数
+        Group group = groupMapper.selectById(groupId);
+        if (group != null) {
+            group.setMemberCount(group.getMemberCount() + 1);
+            group.setUpdateTime(LocalDateTime.now());
+            groupMapper.updateById(group);
+        }
+        
+        log.info("邀请成员成功: groupId={}, targetUserId={}, operatorId={}", 
+            groupId, targetUserId, operatorId);
+    }
+    
+    /**
+     * 批量邀请用户加入群组
+     */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void inviteMembers(Long groupId, List<Long> userIds, Long operatorId) {
+        // 1. 检查操作者权限(管理员或群主)
+        checkPermission(groupId, operatorId, true);
+        
+        // 2. 过滤已在群中的用户
+        List<GroupMember> existingMembers = groupMemberMapper.selectList(
+            new LambdaQueryWrapper<GroupMember>()
+                .eq(GroupMember::getGroupId, groupId)
+                .in(GroupMember::getUserId, userIds)
+                .isNull(GroupMember::getQuitTime)
+        );
+        
+        List<Long> existingUserIds = existingMembers.stream()
+            .map(GroupMember::getUserId)
+            .collect(Collectors.toList());
+        
+        List<Long> newUserIds = userIds.stream()
+            .filter(id -> !existingUserIds.contains(id))
+            .collect(Collectors.toList());
+        
+        // 3. 批量添加新成员（inviterId为操作者，即邀请人）
+        if (!newUserIds.isEmpty()) {
+            List<GroupMember> newMembers = newUserIds.stream()
+                .map(uid -> GroupMember.builder()
+                    .groupId(groupId)
+                    .userId(uid)
+                    .inviterId(operatorId)
+                    .role(MemberRoleEnum.MEMBER.getCode())
+                    .joinTime(LocalDateTime.now())
+                    .build())
+                .collect(Collectors.toList());
+            
+            groupMemberMapper.insertBatchSomeColumn(newMembers);
+            
+            // 4. 更新群成员数
+            Group group = groupMapper.selectById(groupId);
+            if (group != null) {
+                group.setMemberCount(group.getMemberCount() + newMembers.size());
+                group.setUpdateTime(LocalDateTime.now());
+                groupMapper.updateById(group);
+            }
+        }
+        
+        log.info("批量邀请成员成功: groupId={}, count={}, operatorId={}", 
+            groupId, newUserIds.size(), operatorId);
+    }
+    
+    /**
      * 校验创建群组参数
      */
     private void validateCreateGroup(CreateGroupDTO dto) {
@@ -311,7 +596,7 @@ public class GroupServiceImpl implements GroupService {
             new LambdaQueryWrapper<GroupMember>()
                 .eq(GroupMember::getGroupId, groupId)
                 .eq(GroupMember::getUserId, userId)
-                .eq(GroupMember::getIsQuit, 0)
+                .isNull(GroupMember::getQuitTime) // quitTime为null表示未退群
         );
         return member != null ? member.getRole() : null;
     }
@@ -328,7 +613,7 @@ public class GroupServiceImpl implements GroupService {
             new LambdaQueryWrapper<GroupMember>()
                 .eq(GroupMember::getGroupId, groupId)
                 .eq(GroupMember::getUserId, operatorId)
-                .eq(GroupMember::getIsQuit, 0)
+                .isNull(GroupMember::getQuitTime) // quitTime为null表示未退群
         );
         
         if (member == null) {
@@ -379,7 +664,9 @@ public class GroupServiceImpl implements GroupService {
         vo.setId(member.getId());
         vo.setUserId(member.getUserId());
         vo.setRole(member.getRole());
+        vo.setGroupNickname(member.getGroupNickname());
         vo.setJoinTime(member.getJoinTime());
+        vo.setInviterId(member.getInviterId());
         
         if (user != null) {
             vo.setUsername(user.getUsername());
@@ -395,6 +682,25 @@ public class GroupServiceImpl implements GroupService {
         
         // 检查是否在线
         vo.setIsOnline(sessionManager.isOnline(member.getUserId()));
+        
+        // 检查是否被禁言
+        if (member.getMuteUntil() != null && member.getMuteUntil().isAfter(LocalDateTime.now())) {
+            vo.setIsMuted(true);
+            vo.setMuteUntil(member.getMuteUntil());
+        } else {
+            vo.setIsMuted(false);
+        }
+        
+        // 检查是否设置了免打扰
+        vo.setIsSelfMuted(member.getIsMuted() != null && member.getIsMuted() == 1);
+        
+        // 如果有邀请人，获取邀请人姓名
+        if (member.getInviterId() != null) {
+            User inviter = userMapper.selectById(member.getInviterId());
+            if (inviter != null) {
+                vo.setInviterName(inviter.getRealName() != null ? inviter.getRealName() : inviter.getUsername());
+            }
+        }
         
         return vo;
     }

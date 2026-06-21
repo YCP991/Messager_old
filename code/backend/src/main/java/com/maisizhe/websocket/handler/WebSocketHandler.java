@@ -2,12 +2,15 @@ package com.maisizhe.websocket.handler;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.maisizhe.modules.ai.service.AiWorkflowService;
+import com.maisizhe.modules.message.dto.SendMessageDTO;
+import com.maisizhe.modules.message.service.MessageService;
 import com.maisizhe.security.jwt.JwtUtil;
 import com.maisizhe.websocket.message.WSMessage;
 import com.maisizhe.websocket.session.UserSessionManager;
-import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.ApplicationContext;
 import org.springframework.stereotype.Component;
 
 import jakarta.websocket.*;
@@ -21,6 +24,9 @@ import java.util.concurrent.ConcurrentHashMap;
  * WebSocket处理器
  * 处理WebSocket连接、消息、关闭等事件
  * 
+ * 注意：@ServerEndpoint类无法使用@Autowired直接注入，
+ * 必须通过ApplicationContext手动获取Bean
+ * 
  * @author MaiSiZhe Team
  */
 @Slf4j
@@ -28,16 +34,8 @@ import java.util.concurrent.ConcurrentHashMap;
 @ServerEndpoint("/ws/{token}")
 public class WebSocketHandler {
     
-    // 注意: WebSocket端点不能使用@RequiredArgsConstructor，必须有无参构造函数
-    // 使用@Autowired注入依赖
-    @Autowired
-    private UserSessionManager sessionManager;
-    
-    @Autowired
-    private JwtUtil jwtUtil;
-    
-    @Autowired
-    private AiWorkflowService aiWorkflowService;
+    // Spring应用上下文（静态变量，通过Setter注入）
+    private static ApplicationContext applicationContext;
     
     private final ObjectMapper objectMapper = new ObjectMapper();
     
@@ -45,6 +43,64 @@ public class WebSocketHandler {
      * 存储每个Session对应的用户ID
      */
     private static final ConcurrentHashMap<Session, Long> SESSION_USER_MAP = new ConcurrentHashMap<>();
+    
+    /**
+     * 设置Spring应用上下文（通过静态方法设置）
+     * 
+     * 由于@ServerEndpoint注解的类会被ServerEndpointExporter创建新实例，
+     * 无法直接使用@Autowired注入，因此通过此静态方法在应用启动时设置
+     */
+    public static void setApplicationContext(ApplicationContext context) {
+        WebSocketHandler.applicationContext = context;
+        log.info("WebSocketHandler ApplicationContext已通过静态方法设置");
+    }
+    
+    /**
+     * 获取JwtUtil Bean
+     */
+    private JwtUtil getJwtUtil() {
+        if (applicationContext == null) {
+            log.error("ApplicationContext未初始化");
+            return null;
+        }
+        return applicationContext.getBean(JwtUtil.class);
+    }
+    
+    /**
+     * 获取UserSessionManager Bean
+     */
+    private UserSessionManager getSessionManager() {
+        if (applicationContext == null) {
+            log.error("ApplicationContext未初始化");
+            return null;
+        }
+        return applicationContext.getBean(UserSessionManager.class);
+    }
+    
+    /**
+     * 获取AiWorkflowService Bean
+     */
+    private AiWorkflowService getAiWorkflowService() {
+        if (applicationContext == null) {
+            log.error("ApplicationContext未初始化");
+            return null;
+        }
+        return applicationContext.getBean(AiWorkflowService.class);
+    }
+    
+    /**
+     * 获取MessageService Bean（使用ObjectProvider避免循环依赖）
+     */
+    private MessageService getMessageService() {
+        if (applicationContext == null) {
+            log.error("ApplicationContext未初始化");
+            return null;
+        }
+        // 使用ObjectProvider实现懒加载，避免循环依赖
+        ObjectProvider<MessageService> messageServiceProvider = 
+            applicationContext.getBeanProvider(MessageService.class);
+        return messageServiceProvider.getIfAvailable();
+    }
     
     /**
      * 连接建立成功调用
@@ -55,6 +111,14 @@ public class WebSocketHandler {
     @OnOpen
     public void onOpen(Session session, @PathParam("token") String token) {
         try {
+            // 获取JwtUtil Bean
+            JwtUtil jwtUtil = getJwtUtil();
+            if (jwtUtil == null) {
+                log.error("WebSocket连接失败: JwtUtil未初始化");
+                session.close(new CloseReason(CloseReason.CloseCodes.VIOLATED_POLICY, "服务未初始化"));
+                return;
+            }
+            
             // 验证JWT Token
             if (!jwtUtil.validateToken(token)) {
                 log.warn("WebSocket连接失败: Token无效");
@@ -67,6 +131,14 @@ public class WebSocketHandler {
             if (userId == null) {
                 log.warn("WebSocket连接失败: 无法获取用户ID");
                 session.close(new CloseReason(CloseReason.CloseCodes.VIOLATED_POLICY, "用户ID无效"));
+                return;
+            }
+            
+            // 获取SessionManager Bean
+            UserSessionManager sessionManager = getSessionManager();
+            if (sessionManager == null) {
+                log.error("WebSocket连接失败: SessionManager未初始化");
+                session.close(new CloseReason(CloseReason.CloseCodes.VIOLATED_POLICY, "服务未初始化"));
                 return;
             }
             
@@ -128,7 +200,10 @@ public class WebSocketHandler {
     public void onClose(Session session) {
         Long userId = SESSION_USER_MAP.remove(session);
         if (userId != null) {
-            sessionManager.removeSession(userId);
+            UserSessionManager sessionManager = getSessionManager();
+            if (sessionManager != null) {
+                sessionManager.removeSession(userId);
+            }
             log.info("WebSocket连接关闭: userId={}", userId);
         }
     }
@@ -180,18 +255,51 @@ public class WebSocketHandler {
     @SuppressWarnings("unchecked")
     private void handleGroupMessage(Long userId, WSMessage message) {
         try {
+            MessageService messageService = getMessageService();
+            if (messageService == null) {
+                log.error("MessageService未初始化");
+                return;
+            }
+            
+            AiWorkflowService aiWorkflowService = getAiWorkflowService();
+            
             Map<String, Object> data = (Map<String, Object>) message.getData();
             Long groupId = ((Number) data.get("groupId")).longValue();
             String content = (String) data.get("content");
             String clientMsgId = message.getClientMsgId();
+            Integer msgType = data.containsKey("msgType") ? ((Number) data.get("msgType")).intValue() : 0;
             
             // 检测是否@AI
             if (content != null && content.contains("@AI")) {
                 log.info("检测到@AI消息: userId={}, groupId={}", userId, groupId);
-                aiWorkflowService.handleAtAiMessage(groupId, userId, content, clientMsgId);
+                if (aiWorkflowService != null) {
+                    aiWorkflowService.handleAtAiMessage(groupId, userId, content, clientMsgId);
+                }
             } else {
                 log.info("普通群聊消息: userId={}, groupId={}", userId, groupId);
-                // TODO: 调用消息服务保存和推送
+                
+                // 调用消息服务保存和推送（修复未持久化问题）
+                SendMessageDTO dto = new SendMessageDTO();
+                dto.setGroupId(groupId);
+                dto.setContent(content);
+                dto.setMsgType(msgType);
+                dto.setClientMsgId(clientMsgId);
+                
+                try {
+                    messageService.sendGroupMessage(userId, dto);
+                    log.info("普通群聊消息保存成功: userId={}, groupId={}", userId, groupId);
+                } catch (Exception e) {
+                    log.error("保存普通群聊消息失败: userId={}, groupId={}", userId, groupId, e);
+                    // 发送错误提示
+                    sendTextMessage(SESSION_USER_MAP.entrySet().stream()
+                        .filter(entry -> entry.getValue().equals(userId))
+                        .map(Map.Entry::getKey)
+                        .findFirst()
+                        .orElse(null),
+                        objectMapper.writeValueAsString(
+                            new WSMessage("SYSTEM_NOTIFICATION", "发送失败: " + e.getMessage(), null)
+                        ));
+                }
             }
         } catch (Exception e) {
             log.error("处理群聊消息失败", e);
@@ -240,6 +348,12 @@ public class WebSocketHandler {
      * @param message 消息对象
      */
     public void sendMessageToUser(Long userId, WSMessage message) {
+        UserSessionManager sessionManager = getSessionManager();
+        if (sessionManager == null) {
+            log.error("UserSessionManager未初始化");
+            return;
+        }
+        
         Session session = sessionManager.getSession(userId);
         if (session != null && session.isOpen()) {
             try {
@@ -260,9 +374,15 @@ public class WebSocketHandler {
      * @param message 消息对象
      */
     public void broadcastMessage(WSMessage message) {
+        UserSessionManager sessionManager = getSessionManager();
+        if (sessionManager == null) {
+            log.error("UserSessionManager未初始化");
+            return;
+        }
+        
         try {
             String jsonMessage = objectMapper.writeValueAsString(message);
-            sessionManager.getAllSessions().forEach((userId, session) -> {
+            sessionManager.getAllSessions().forEach((uid, session) -> {
                 sendTextMessage(session, jsonMessage);
             });
             log.debug("广播消息成功: 在线人数={}", sessionManager.getOnlineCount());

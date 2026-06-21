@@ -10,7 +10,6 @@
 
 <script setup lang="ts">
 import { ref } from 'vue';
-import { darkTheme } from 'naive-ui';
 import type { GlobalTheme } from 'naive-ui';
 
 // 主题配置(null为浅色模式，darkTheme为深色模式)

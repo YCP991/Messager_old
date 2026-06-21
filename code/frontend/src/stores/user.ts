@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import type { UserInfo } from '@/api/auth';
+import { getUserInfo } from '@/api/auth';
 
 /**
  * 用户状态管理
@@ -9,6 +10,7 @@ export const useUserStore = defineStore('user', () => {
   // State
   const token = ref<string>(localStorage.getItem('token') || '');
   const userInfo = ref<UserInfo | null>(null);
+  const isRefreshing = ref(false);
 
   // Getters
   const isLoggedIn = computed(() => !!token.value);
@@ -53,8 +55,44 @@ export const useUserStore = defineStore('user', () => {
     const storedToken = localStorage.getItem('token');
     if (storedToken) {
       token.value = storedToken;
-      // TODO: 可以调用API获取最新用户信息
+      // 尝试刷新用户信息
+      refreshUserInfo().catch(() => {
+        // 刷新失败，可能Token已过期
+        console.warn('用户信息刷新失败');
+      });
     }
+  }
+
+  /**
+   * 刷新用户信息
+   */
+  async function refreshUserInfo(): Promise<void> {
+    if (isRefreshing.value) {
+      return;
+    }
+    
+    try {
+      isRefreshing.value = true;
+      // 假设用户ID存储在localStorage中
+      const storedUserId = localStorage.getItem('userId');
+      if (storedUserId) {
+        const info = await getUserInfo(parseInt(storedUserId));
+        userInfo.value = info;
+      }
+    } catch (error) {
+      console.error('刷新用户信息失败:', error);
+      // 如果刷新失败，可能是Token过期，清除登录状态
+      logout();
+    } finally {
+      isRefreshing.value = false;
+    }
+  }
+
+  /**
+   * 保存用户ID到localStorage
+   */
+  function saveUserId(userId: number): void {
+    localStorage.setItem('userId', userId.toString());
   }
 
   return {
@@ -71,6 +109,8 @@ export const useUserStore = defineStore('user', () => {
     setToken,
     setUserInfo,
     logout,
-    restoreFromStorage
+    restoreFromStorage,
+    refreshUserInfo,
+    saveUserId
   };
 });

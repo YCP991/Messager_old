@@ -21,6 +21,24 @@ const routes: RouteRecordRaw[] = [
     meta: { requiresAuth: true }
   },
   {
+    path: '/contacts',
+    name: 'Contacts',
+    component: () => import('@/views/Contacts.vue'),
+    meta: { requiresAuth: true }
+  },
+  {
+    path: '/chat/private',
+    name: 'PrivateChat',
+    component: () => import('@/views/Chat.vue'),
+    meta: { requiresAuth: true }
+  },
+  {
+    path: '/chat/group/:groupId',
+    name: 'GroupChat',
+    component: () => import('@/views/Chat.vue'),
+    meta: { requiresAuth: true }
+  },
+  {
     path: '/:pathMatch(.*)*',
     redirect: '/'
   }
@@ -32,7 +50,7 @@ const router = createRouter({
 });
 
 // 路由守卫
-router.beforeEach((to, from, next) => {
+router.beforeEach((to, _from, next) => {
   const userStore = useUserStore();
   
   if (to.meta.requiresAuth && !userStore.isLoggedIn) {

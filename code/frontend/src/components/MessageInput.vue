@@ -33,7 +33,7 @@ import { useMessage } from 'naive-ui';
 
 const message = useMessage();
 
-const props = defineProps<{
+defineProps<{
   placeholder?: string;
 }>();
 

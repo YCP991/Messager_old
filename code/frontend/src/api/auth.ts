@@ -24,7 +24,9 @@ export interface UserInfo {
   realName: string;
   avatar: string;
   role: number;
-  className?: string;
+  classNo?: string;  // 与后端保持一致
+  isOnline?: number; // 在线状态:0-离线,1-在线
+  lastOnlineTime?: string; // 最后在线时间
 }
 
 // 登录响应
@@ -63,6 +65,7 @@ export function updateProfile(userId: number, data: UserInfo): Promise<void> {
 
 /**
  * 获取群组列表
+ * 从JWT Token中获取当前用户ID
  */
 export interface GroupInfo {
   id: number;
@@ -73,18 +76,6 @@ export interface GroupInfo {
   myRole?: number;
 }
 
-export function getUserGroups(userId: number): Promise<GroupInfo[]> {
-  return request.get('/group/my-groups', { params: { userId } });
-}
-
-/**
- * 获取群聊历史消息
- */
-export interface MessageParams {
-  groupId: number;
-  limit?: number;
-}
-
-export function getGroupHistory(params: MessageParams): Promise<any[]> {
-  return request.get('/message/group/history', { params });
+export function getUserGroups(): Promise<GroupInfo[]> {
+  return request.get('/group/my-groups');
 }

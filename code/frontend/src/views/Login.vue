@@ -73,6 +73,11 @@ async function handleLogin() {
     // 保存Token和用户信息
     userStore.setToken(response.token, response.userInfo);
     
+    // 保存用户ID到localStorage，用于后续刷新用户信息
+    if (response.userInfo?.id) {
+      userStore.saveUserId(response.userInfo.id);
+    }
+    
     message.success('登录成功');
     
     // 跳转到聊天页面

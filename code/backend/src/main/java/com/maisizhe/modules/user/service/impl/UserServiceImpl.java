@@ -66,7 +66,7 @@ public class UserServiceImpl implements UserService {
         
         LoginVO.UserInfo userInfo = new LoginVO.UserInfo();
         BeanUtils.copyProperties(user, userInfo);
-        userInfo.setClassName(user.getClassNo());
+        userInfo.setClassNo(user.getClassNo());
         loginVO.setUserInfo(userInfo);
         
         log.info("用户登录成功: userId={}, username={}", user.getId(), user.getUsername());

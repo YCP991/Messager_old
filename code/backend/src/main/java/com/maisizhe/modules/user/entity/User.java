@@ -33,11 +33,13 @@ public class User {
     /**
      * 学号/工号
      */
+    @TableField("student_no")
     private String studentNo;
     
     /**
      * 真实姓名
      */
+    @TableField("real_name")
     private String realName;
     
     /**
@@ -58,6 +60,7 @@ public class User {
     /**
      * 班级号(学生)
      */
+    @TableField("class_no")
     private String classNo;
     
     /**
@@ -76,13 +79,27 @@ public class User {
     private Integer status;
     
     /**
+     * 在线状态:0-离线,1-在线
+     */
+    @TableField("is_online")
+    private Integer isOnline;
+    
+    /**
+     * 最后在线时间
+     */
+    @TableField("last_online_time")
+    private LocalDateTime lastOnlineTime;
+    
+    /**
      * 最后登录时间
      */
+    @TableField("last_login_time")
     private LocalDateTime lastLoginTime;
     
     /**
      * 最后登录IP
      */
+    @TableField("last_login_ip")
     private String lastLoginIp;
     
     /**
@@ -96,4 +113,10 @@ public class User {
      */
     @TableField(fill = FieldFill.INSERT_UPDATE)
     private LocalDateTime updateTime;
+    
+    /**
+     * 逻辑删除:0-未删除,1-已删除
+     */
+    @TableField("deleted")
+    private Integer deleted;
 }

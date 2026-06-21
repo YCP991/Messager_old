@@ -33,6 +33,11 @@ public class GroupVO {
     private String announcement;
     
     /**
+     * 群组描述
+     */
+    private String description;
+    
+    /**
      * 群组类型
      */
     private Integer groupType;
@@ -68,14 +73,19 @@ public class GroupVO {
     private Integer maxMembers;
     
     /**
-     * 是否允许成员邀请
-     */
-    private Integer allowInvite;
-    
-    /**
      * 当前成员数
      */
     private Integer memberCount;
+    
+    /**
+     * 是否已解散
+     */
+    private Integer isDisbanded;
+    
+    /**
+     * 解散时间
+     */
+    private LocalDateTime disbandTime;
     
     /**
      * 创建时间

@@ -1,11 +1,17 @@
 package com.maisizhe.modules.message.service.impl;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.maisizhe.common.constants.RedisKeyConstants;
+import com.maisizhe.common.enums.MemberRoleEnum;
 import com.maisizhe.common.enums.MessageTypeEnum;
 import com.maisizhe.common.exception.BusinessException;
 import com.maisizhe.common.util.RedisUtil;
+import com.maisizhe.modules.group.entity.Group;
+import com.maisizhe.modules.group.entity.GroupMember;
+import com.maisizhe.modules.group.mapper.GroupMapper;
+import com.maisizhe.modules.group.mapper.GroupMemberMapper;
 import com.maisizhe.modules.message.dto.SendMessageDTO;
 import com.maisizhe.modules.message.entity.Message;
 import com.maisizhe.modules.message.mapper.MessageMapper;
@@ -24,6 +30,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
 import java.util.Arrays;
 import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  * 消息服务实现类
@@ -37,6 +44,8 @@ public class MessageServiceImpl implements MessageService {
     
     private final MessageMapper messageMapper;
     private final UserMapper userMapper;
+    private final GroupMapper groupMapper;
+    private final GroupMemberMapper groupMemberMapper;
     private final RedisUtil redisUtil;
     private final WebSocketHandler webSocketHandler;
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -104,7 +113,34 @@ public class MessageServiceImpl implements MessageService {
             throw new BusinessException("群组ID不能为空");
         }
         
-        // 2. 客户端消息ID去重
+        // 2. 检查群组是否存在
+        Group group = groupMapper.selectById(dto.getGroupId());
+        if (group == null) {
+            throw new BusinessException("群组不存在");
+        }
+        
+        // 3. 检查群组是否已解散
+        if (group.getIsDisbanded() != null && group.getIsDisbanded() == 1) {
+            throw new BusinessException("群组已解散");
+        }
+        
+        // 4. 检查发送者是否是群组成员
+        GroupMember member = groupMemberMapper.selectOne(
+            new LambdaQueryWrapper<GroupMember>()
+                .eq(GroupMember::getGroupId, dto.getGroupId())
+                .eq(GroupMember::getUserId, fromUid)
+                .isNull(GroupMember::getQuitTime)
+        );
+        if (member == null) {
+            throw new BusinessException("不是群成员，无法发送消息");
+        }
+        
+        // 5. 检查是否被禁言
+        if (member.getMuteUntil() != null && member.getMuteUntil().isAfter(LocalDateTime.now())) {
+            throw new BusinessException("您已被禁言，无法发送消息");
+        }
+        
+        // 6. 客户端消息ID去重
         String dedupKey = RedisKeyConstants.CLIENT_MSG_ID + dto.getClientMsgId();
         if (redisUtil.hasKey(dedupKey)) {
             log.warn("重复消息: clientMsgId={}", dto.getClientMsgId());
@@ -112,14 +148,14 @@ public class MessageServiceImpl implements MessageService {
         }
         redisUtil.setEx(dedupKey, "1", 300); // 5分钟过期
         
-        // 3. 生成chat_id(格式: g_gid)
+        // 7. 生成chat_id(格式: g_gid)
         String chatId = "g_" + dto.getGroupId();
         
-        // 4. 生成seq_id(Redis原子自增)
+        // 8. 生成seq_id(Redis原子自增)
         String seqKey = RedisKeyConstants.SEQ_ID_PREFIX + chatId;
         Long seqId = redisUtil.incr(seqKey);
         
-        // 5. 构建消息实体
+        // 9. 构建消息实体
         Message message = new Message();
         message.setChatId(chatId);
         message.setSeqId(seqId);
@@ -131,16 +167,16 @@ public class MessageServiceImpl implements MessageService {
         message.setIsRecalled(0);
         message.setCreateTime(LocalDateTime.now());
         
-        // 6. 写入MySQL
+        // 10. 写入MySQL
         messageMapper.insert(message);
         
-        // 7. 写入Redis ZSet缓存(最近100条)
+        // 11. 写入Redis ZSet缓存(最近100条)
         cacheMessage(chatId, message);
         
-        // 8. 推送给群成员(如果在线)
-        pushGroupMessage(message);
+        // 12. 只推送给群组成员（修复安全漏洞）
+        pushGroupMessage(message, dto.getGroupId());
         
-        // 9. 返回消息VO
+        // 13. 返回消息VO
         return convertToVO(message);
     }
     
@@ -270,9 +306,12 @@ public class MessageServiceImpl implements MessageService {
     }
     
     /**
-     * 推送群聊消息
+     * 推送群聊消息（只发送给群组成员）
+     * 
+     * @param message 消息实体
+     * @param groupId 群组ID
      */
-    private void pushGroupMessage(Message message) {
+    private void pushGroupMessage(Message message, Long groupId) {
         try {
             WSMessage wsMessage = new WSMessage(
                 "GROUP_MESSAGE",
@@ -280,9 +319,19 @@ public class MessageServiceImpl implements MessageService {
                 null
             );
             
-            // TODO: 从群组服务获取所有成员ID
-            // 这里先简化为广播给所有在线用户
-            webSocketHandler.broadcastMessage(wsMessage);
+            // 获取群组成员ID列表
+            List<GroupMember> members = groupMemberMapper.selectList(
+                new LambdaQueryWrapper<GroupMember>()
+                    .eq(GroupMember::getGroupId, groupId)
+                    .isNull(GroupMember::getQuitTime)
+            );
+            
+            // 只推送给群组成员
+            for (GroupMember member : members) {
+                webSocketHandler.sendMessageToUser(member.getUserId(), wsMessage);
+            }
+            
+            log.info("群聊消息推送成功: groupId={}, memberCount={}", groupId, members.size());
             
         } catch (Exception e) {
             log.error("推送群聊消息失败", e);
@@ -301,8 +350,16 @@ public class MessageServiceImpl implements MessageService {
             );
             
             if (message.getGroupId() != null) {
-                // 群聊撤回通知
-                webSocketHandler.broadcastMessage(wsMessage);
+                // 群聊撤回通知 - 只发送给群组成员
+                List<GroupMember> members = groupMemberMapper.selectList(
+                    new LambdaQueryWrapper<GroupMember>()
+                        .eq(GroupMember::getGroupId, message.getGroupId())
+                        .isNull(GroupMember::getQuitTime)
+                );
+                for (GroupMember member : members) {
+                    webSocketHandler.sendMessageToUser(member.getUserId(), wsMessage);
+                }
+                log.info("群聊撤回通知推送成功: groupId={}, memberCount={}", message.getGroupId(), members.size());
             } else {
                 // 私聊撤回通知
                 webSocketHandler.sendMessageToUser(message.getToUid(), wsMessage);
@@ -327,8 +384,16 @@ public class MessageServiceImpl implements MessageService {
         // 填充发送者信息
         User fromUser = userMapper.selectById(message.getFromUid());
         if (fromUser != null) {
-            vo.setFromName(fromUser.getRealName());
+            vo.setFromName(fromUser.getRealName() != null ? fromUser.getRealName() : fromUser.getUsername());
             vo.setFromAvatar(fromUser.getAvatar());
+        } else if (message.getFromUid() == 0L) {
+            // AI机器人
+            vo.setFromName("AI助手");
+            vo.setFromAvatar(null);
+        } else {
+            // 用户不存在，使用默认值
+            vo.setFromName("[已注销用户]");
+            vo.setFromAvatar(null);
         }
         
         return vo;
